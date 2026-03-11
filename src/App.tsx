@@ -63,6 +63,7 @@ type IncidentDetail = {
     event_class: string;
     dependency: string;
     message: string;
+    message_template: string;
   }>;
 };
 
@@ -151,10 +152,31 @@ const DEFAULT_BASE_URL = "http://192.168.2.44:8088";
  *  1. Escape all regex special chars in the literal parts.
  *  2. Replace <placeholder> tokens with \S+ (non-whitespace run).
  *  3. Prefix with (?i) for case-insensitive matching. */
+/** Test a Python-style regex pattern against an array of strings.
+ *  Handles (?i) prefix by converting it to the JS `i` flag.
+ *  Returns { valid, error, matchCount } */
+function testRegexPattern(pattern: string, messages: string[]): { valid: boolean; error?: string; matchCount: number } {
+  if (!pattern.trim()) return { valid: false, error: "Pattern is empty", matchCount: 0 };
+  let flags = "";
+  let src = pattern;
+  if (src.startsWith("(?i)")) { src = src.slice(4); flags = "i"; }
+  try {
+    const re = new RegExp(src, flags);
+    const matchCount = messages.filter((m) => re.test(m)).length;
+    return { valid: true, matchCount };
+  } catch (e: any) {
+    return { valid: false, error: e.message, matchCount: 0 };
+  }
+}
+
 function templateToRegex(template: string): string {
-  const escaped = template.replace(/[.+*?^${}()|[\]\\]/g, "\\$&");
-  const withWildcards = escaped.replace(/<[^>]+>/g, "\\S+");
-  return "(?i)" + withWildcards;
+  const parts = template.split(/(<[^>]+>)/);
+  const result = parts.map((part) =>
+    /^<[^>]+>$/.test(part)
+      ? "\\S+(?:[ ]\\S+)?"   // placeholder — allow one optional space (handles "2026-03-11 17:21:36")
+      : part.replace(/[.+*?^${}()|[\]\\]/g, "\\$&")
+  );
+  return "(?i)" + result.join("");
 }
 
 function classNames(...parts: Array<string | false | null | undefined>) {
@@ -877,7 +899,7 @@ export default function HomelabIncidentDashboard() {
                                 setSuppressScope(s);
                                 if (s === "message_regex" && !suppressPattern) {
                                   const firstEvent = detail.events?.[0];
-                                  const template = (firstEvent as any)?.message_template || firstEvent?.message || "";
+                                  const template = firstEvent?.message_template || firstEvent?.message || "";
                                   setSuppressPattern(template ? templateToRegex(template) : "");
                                 }
                               }}
@@ -911,21 +933,42 @@ export default function HomelabIncidentDashboard() {
                       />
                     )}
 
-                    {suppressScope === "message_regex" && (
-                      <div className="space-y-1.5">
-                        <div className="text-xs text-slate-400">
-                          Pattern <span className="text-slate-500">(Python regex — pre-filled from the event template, edit specific names like engine/host to <code className="font-mono text-slate-400">\w+</code> if you want broader matching)</span>
+                    {suppressScope === "message_regex" && (() => {
+                      const eventMessages = (detail.events || []).map((e) => e.message);
+                      const { valid, error: regexError, matchCount } = testRegexPattern(suppressPattern, eventMessages);
+                      const total = eventMessages.length;
+                      return (
+                        <div className="space-y-1.5">
+                          <div className="text-xs text-slate-400">
+                            Pattern <span className="text-slate-500">(Python regex — pre-filled from the event template, edit specific names like engine/host to <code className="font-mono text-slate-400">\w+</code> if you want broader matching)</span>
+                          </div>
+                          <textarea
+                            value={suppressPattern}
+                            onChange={(e) => setSuppressPattern(e.target.value)}
+                            rows={3}
+                            spellCheck={false}
+                            placeholder="e.g. (?i)searx\.engines\.\w+: HTTP requests timeout"
+                            className={classNames(
+                              "w-full rounded-2xl border bg-slate-950 px-3 py-2 text-sm font-mono text-slate-200 placeholder:text-slate-600 focus:outline-none resize-none",
+                              !suppressPattern.trim() ? "border-slate-700 focus:border-orange-700"
+                                : valid && matchCount > 0 ? "border-emerald-700 focus:border-emerald-600"
+                                : valid && matchCount === 0 ? "border-yellow-700 focus:border-yellow-600"
+                                : "border-red-700 focus:border-red-600"
+                            )}
+                          />
+                          {suppressPattern.trim() && (
+                            <div className={classNames(
+                              "text-xs flex items-center gap-1.5",
+                              !valid ? "text-red-400" : matchCount > 0 ? "text-emerald-400" : "text-yellow-400"
+                            )}>
+                              {!valid && <><span>✗ Invalid regex:</span><span className="font-mono">{regexError}</span></>}
+                              {valid && matchCount > 0 && <span>✓ Matches {matchCount} of {total} events in this incident</span>}
+                              {valid && matchCount === 0 && <span>⚠ Valid regex but matches none of the {total} events — pattern may be too narrow</span>}
+                            </div>
+                          )}
                         </div>
-                        <textarea
-                          value={suppressPattern}
-                          onChange={(e) => setSuppressPattern(e.target.value)}
-                          rows={3}
-                          spellCheck={false}
-                          placeholder="e.g. (?i)searx\.engines\.\w+: HTTP requests timeout"
-                          className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-mono text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-orange-700 resize-none"
-                        />
-                      </div>
-                    )}
+                      );
+                    })()}
 
                     <Input
                       value={suppressReason}
@@ -939,7 +982,8 @@ export default function HomelabIncidentDashboard() {
                         disabled={
                           suppressLoading ||
                           (suppressScope === "event_class_host" && !suppressHost.trim()) ||
-                          (suppressScope === "message_regex" && !suppressPattern.trim())
+                          (suppressScope === "message_regex" && !suppressPattern.trim()) ||
+                          (suppressScope === "message_regex" && suppressPattern.trim().length > 0 && !testRegexPattern(suppressPattern, (detail?.events || []).map((e) => e.message)).valid)
                         }
                         className="rounded-2xl bg-orange-700 hover:bg-orange-600 text-white"
                       >
