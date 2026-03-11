@@ -173,7 +173,7 @@ function templateToRegex(template: string): string {
   const parts = template.split(/(<[^>]+>)/);
   const result = parts.map((part) =>
     /^<[^>]+>$/.test(part)
-      ? "\\S+(?:[ ]\\S+)?"   // placeholder — allow one optional space (handles "2026-03-11 17:21:36")
+      ? ".+?"   // lazy match — surrounding literals act as terminators
       : part.replace(/[.+*?^${}()|[\]\\]/g, "\\$&")
   );
   return "(?i)" + result.join("");
