@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, CheckCircle2, RefreshCw, ServerCrash, Search, Activity, FileSearch, ShieldAlert, X, ChevronDown, ChevronUp } from "lucide-react";
+import { AlertTriangle, CheckCircle2, RefreshCw, ServerCrash, Search, Activity, FileSearch, ShieldAlert, X, ChevronDown, ChevronUp, BellOff, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +36,7 @@ type Incident = {
   affected_services: string[];
   root_cause_candidates: string[];
   summary: string;
+  primary_fingerprint?: string;
   probable_root_cause?: string;
   confidence?: string;
   last_analyzed_at?: string;
@@ -105,6 +106,18 @@ type IncidentContext = {
   similar_incidents: Incident[];
 };
 
+type SuppressRule = {
+  id: number;
+  match_type: "fingerprint" | "event_class" | "event_class_host" | "message_regex";
+  canonical_fingerprint: string;
+  match_host: string;
+  match_pattern: string;
+  incident_title: string;
+  event_class: string;
+  reason: string;
+  created_at: string;
+};
+
 type AnalyzeResponse = {
   incident_id: number;
   analysis: {
@@ -117,6 +130,16 @@ type AnalyzeResponse = {
 };
 
 const DEFAULT_BASE_URL = "http://192.168.2.44:8088";
+
+/** Convert a backend message_template into a ready-to-use regex.
+ *  1. Escape all regex special chars in the literal parts.
+ *  2. Replace <placeholder> tokens with \S+ (non-whitespace run).
+ *  3. Prefix with (?i) for case-insensitive matching. */
+function templateToRegex(template: string): string {
+  const escaped = template.replace(/[.+*?^${}()|[\]\\]/g, "\\$&");
+  const withWildcards = escaped.replace(/<[^>]+>/g, "\\S+");
+  return "(?i)" + withWildcards;
+}
 
 function classNames(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(" ");
@@ -202,6 +225,15 @@ export default function HomelabIncidentDashboard() {
   const [analyzeLoading, setAnalyzeLoading] = useState(false);
   const [closeLoading, setCloseLoading] = useState(false);
   const [reopenLoading, setReopenLoading] = useState(false);
+  const [suppressLoading, setSuppressLoading] = useState(false);
+  const [suppressScope, setSuppressScope] = useState<"fingerprint" | "event_class" | "event_class_host" | "message_regex">("event_class");
+  const [suppressReason, setSuppressReason] = useState("");
+  const [suppressHost, setSuppressHost] = useState("");
+  const [suppressPattern, setSuppressPattern] = useState("");
+  const [showSuppressInput, setShowSuppressInput] = useState(false);
+  const [suppressRules, setSuppressRules] = useState<SuppressRule[]>([]);
+  const [suppressRulesLoading, setSuppressRulesLoading] = useState(false);
+  const [showSuppressRules, setShowSuppressRules] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showRawEvents, setShowRawEvents] = useState(false);
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -359,9 +391,54 @@ export default function HomelabIncidentDashboard() {
     }
   }
 
+  async function suppressIncident() {
+    if (!selectedId) return;
+    setSuppressLoading(true);
+    setError(null);
+    try {
+      const p = new URLSearchParams({ scope: suppressScope });
+      if (suppressReason.trim()) p.set("reason", suppressReason.trim());
+      if (suppressScope === "event_class_host" && suppressHost.trim()) p.set("match_host", suppressHost.trim());
+      if (suppressScope === "message_regex") p.set("match_pattern", suppressPattern.trim());
+      await api(baseUrl, `/api/incidents/${selectedId}/suppress?${p}`, { method: "POST" });
+      setShowSuppressInput(false);
+      setSuppressReason("");
+      setSuppressHost("");
+      setSuppressPattern("");
+      await loadIncidents();
+      await loadSuppressRules();
+    } catch (e: any) {
+      setError(e.message || "Failed to suppress incident");
+    } finally {
+      setSuppressLoading(false);
+    }
+  }
+
+  async function loadSuppressRules() {
+    setSuppressRulesLoading(true);
+    try {
+      const res = await api<{ items: SuppressRule[] }>(baseUrl, "/api/suppress-rules");
+      setSuppressRules(res.items || []);
+    } catch {
+      // non-fatal
+    } finally {
+      setSuppressRulesLoading(false);
+    }
+  }
+
+  async function deleteSuppressRule(ruleId: number) {
+    try {
+      await api(baseUrl, `/api/suppress-rules/${ruleId}`, { method: "DELETE" });
+      setSuppressRules((prev) => prev.filter((r) => r.id !== ruleId));
+    } catch (e: any) {
+      setError(e.message || "Failed to delete suppress rule");
+    }
+  }
+
   useEffect(() => {
     loadIncidents();
     loadDigest();
+    loadSuppressRules();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseUrl]);
 
@@ -398,6 +475,10 @@ export default function HomelabIncidentDashboard() {
   useEffect(() => {
     if (selectedId != null) {
       loadIncident(selectedId);
+      setShowSuppressInput(false);
+      setSuppressReason("");
+      setSuppressHost("");
+      setSuppressPattern("");
     } else {
       setDetail(null);
       setContext(null);
@@ -406,6 +487,11 @@ export default function HomelabIncidentDashboard() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
+
+  useEffect(() => {
+    if (showSuppressRules) loadSuppressRules();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showSuppressRules]);
 
   const currentAnalysis = analyzeResult?.analysis || detail?.incident?.analysis_json || null;
   const hasMore = incidents.length < incidentTotal;
@@ -681,10 +767,126 @@ export default function HomelabIncidentDashboard() {
                         Re-open
                       </Button>
                     )}
+                    {detail?.incident && (
+                      <Button
+                        variant="outline"
+                        className="rounded-2xl border-slate-700 bg-slate-900 text-slate-400 hover:text-orange-300 hover:border-orange-800"
+                        onClick={() => setShowSuppressInput((v) => !v)}
+                        title="Suppress this incident type permanently"
+                      >
+                        <BellOff className="h-4 w-4 mr-2" />
+                        Suppress
+                      </Button>
+                    )}
                   </div>
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
+                {showSuppressInput && detail?.incident && (
+                  <div className="rounded-2xl border border-orange-900/50 bg-orange-950/30 p-4 space-y-3">
+                    <div className="text-sm font-medium text-orange-300 flex items-center gap-2">
+                      <BellOff className="h-4 w-4" />
+                      Suppress this incident type
+                    </div>
+
+                    <div className="space-y-1">
+                      <div className="text-xs text-slate-400 mb-1">Scope</div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {(["event_class", "event_class_host", "message_regex", "fingerprint"] as const).map((s) => {
+                          const fp = detail.incident.primary_fingerprint || "";
+                          const ec = detail.incident.event_class || "?";
+                          const labels: Record<string, { title: string; desc: string }> = {
+                            event_class:      { title: "Event class",     desc: `all "${ec}" events, any source` },
+                            event_class_host: { title: "Class + host",    desc: `"${ec}" from one specific node` },
+                            message_regex:    { title: "Message pattern", desc: "regex matched against log text" },
+                            fingerprint:      { title: "Exact pattern",   desc: fp },
+                          };
+                          return (
+                            <button
+                              key={s}
+                              onClick={() => {
+                                setSuppressScope(s);
+                                if (s === "message_regex" && !suppressPattern) {
+                                  const firstEvent = detail.events?.[0];
+                                  const template = (firstEvent as any)?.message_template || firstEvent?.message || "";
+                                  setSuppressPattern(template ? templateToRegex(template) : "");
+                                }
+                              }}
+                              title={s === "fingerprint" ? fp : undefined}
+                              className={classNames(
+                                "rounded-xl border p-2 text-left text-xs transition-all",
+                                suppressScope === s
+                                  ? "border-orange-600 bg-orange-900/40 text-orange-200"
+                                  : "border-slate-700 bg-slate-950/60 text-slate-400 hover:border-slate-600"
+                              )}
+                            >
+                              <div className="font-medium">{labels[s].title}</div>
+                              <div className={classNames(
+                                "text-slate-500 mt-0.5 leading-4",
+                                s === "fingerprint" && "font-mono truncate"
+                              )}>
+                                {labels[s].desc}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {suppressScope === "event_class_host" && (
+                      <Input
+                        value={suppressHost}
+                        onChange={(e) => setSuppressHost(e.target.value)}
+                        placeholder={`Host (e.g. ${detail.incident.affected_nodes?.[0] || "proxmox"})`}
+                        className="bg-slate-950 border-slate-700 rounded-2xl text-sm"
+                      />
+                    )}
+
+                    {suppressScope === "message_regex" && (
+                      <div className="space-y-1.5">
+                        <div className="text-xs text-slate-400">
+                          Pattern <span className="text-slate-500">(Python regex — pre-filled from the event template, edit specific names like engine/host to <code className="font-mono text-slate-400">\w+</code> if you want broader matching)</span>
+                        </div>
+                        <textarea
+                          value={suppressPattern}
+                          onChange={(e) => setSuppressPattern(e.target.value)}
+                          rows={3}
+                          spellCheck={false}
+                          placeholder="e.g. (?i)searx\.engines\.\w+: HTTP requests timeout"
+                          className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-mono text-slate-200 placeholder:text-slate-600 focus:outline-none focus:border-orange-700 resize-none"
+                        />
+                      </div>
+                    )}
+
+                    <Input
+                      value={suppressReason}
+                      onChange={(e) => setSuppressReason(e.target.value)}
+                      placeholder="Reason (optional)"
+                      className="bg-slate-950 border-slate-700 rounded-2xl text-sm"
+                    />
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={suppressIncident}
+                        disabled={
+                          suppressLoading ||
+                          (suppressScope === "event_class_host" && !suppressHost.trim()) ||
+                          (suppressScope === "message_regex" && !suppressPattern.trim())
+                        }
+                        className="rounded-2xl bg-orange-700 hover:bg-orange-600 text-white"
+                      >
+                        {suppressLoading && <RefreshCw className="h-4 w-4 mr-2 animate-spin" />}
+                        Confirm suppress
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="rounded-2xl border-slate-700"
+                        onClick={() => { setShowSuppressInput(false); setSuppressReason(""); setSuppressHost(""); }}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
                 {!selectedId && <div className="text-sm text-slate-400">No incident selected.</div>}
                 {selectedId && detailLoading && <div className="text-sm text-slate-400">Loading incident details…</div>}
                 {detail?.incident && (
@@ -865,6 +1067,90 @@ export default function HomelabIncidentDashboard() {
             </Card>
           </div>
         </div>
+
+        {/* Suppression rules panel */}
+        <Card className="border-slate-800 bg-slate-900/70 rounded-3xl shadow-2xl">
+          <button
+            className="w-full flex items-center justify-between p-6 text-left"
+            onClick={() => setShowSuppressRules((v) => !v)}
+          >
+            <div>
+              <div className="text-base font-semibold flex items-center gap-2 text-slate-200">
+                <BellOff className="h-5 w-5 text-orange-400" />
+                Suppression rules
+                {suppressRules.length > 0 && (
+                  <Badge variant="outline" className="border-orange-800 text-orange-300 ml-1">
+                    {suppressRules.length}
+                  </Badge>
+                )}
+              </div>
+              <div className="text-sm text-slate-400 mt-1">
+                Incident types that are permanently silenced.
+              </div>
+            </div>
+            {showSuppressRules ? <ChevronUp className="h-5 w-5 text-slate-400" /> : <ChevronDown className="h-5 w-5 text-slate-400" />}
+          </button>
+          {showSuppressRules && (
+            <CardContent className="pt-0 space-y-3">
+              {suppressRulesLoading && (
+                <div className="text-sm text-slate-400">Loading…</div>
+              )}
+              {!suppressRulesLoading && suppressRules.length === 0 && (
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-400">
+                  No suppression rules. Use the "Suppress" button on an incident to add one.
+                </div>
+              )}
+              {suppressRules.map((rule) => {
+                const scopeLabel = {
+                  fingerprint: "Exact pattern",
+                  event_class: "All by class",
+                  event_class_host: "Class + host",
+                  message_regex: "Message pattern",
+                }[rule.match_type] ?? rule.match_type;
+                return (
+                  <div key={rule.id} className="rounded-2xl border border-orange-900/30 bg-orange-950/20 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-sm text-slate-200">{rule.incident_title || "—"}</span>
+                          <Badge variant="outline" className="border-orange-800/50 text-orange-400/80 text-xs">
+                            {scopeLabel}
+                          </Badge>
+                        </div>
+                        <div className="text-xs text-slate-400 space-x-3">
+                          {rule.event_class && <span>class: <span className="text-slate-300">{rule.event_class}</span></span>}
+                          {rule.match_host && <span>host: <span className="text-slate-300">{rule.match_host}</span></span>}
+                          {rule.match_type === "fingerprint" && (
+                            <span className="font-mono text-slate-500 break-all">{rule.canonical_fingerprint}</span>
+                          )}
+                        </div>
+                        {rule.match_type === "message_regex" && rule.match_pattern && (
+                          <div className="font-mono text-xs text-slate-400 bg-slate-900 rounded-lg px-2 py-1 mt-1 break-all">
+                            {rule.match_pattern}
+                          </div>
+                        )}
+                        {rule.reason && (
+                          <div className="text-xs text-orange-300/70">Reason: {rule.reason}</div>
+                        )}
+                        <div className="text-xs text-slate-500">Added {fmtDate(rule.created_at)}</div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="shrink-0 text-slate-500 hover:text-red-400 hover:bg-red-950/40"
+                        onClick={() => deleteSuppressRule(rule.id)}
+                        title="Lift suppression"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </CardContent>
+          )}
+        </Card>
+
       </div>
     </div>
   );
