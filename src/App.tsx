@@ -322,10 +322,10 @@ export default function HomelabIncidentDashboard() {
     }
   }
 
-  async function loadDigest() {
+  async function loadDigest(refresh = false) {
     setDigestLoading(true);
     try {
-      const digestRes = await api<Digest>(baseUrl, "/api/incidents/open/llm-digest");
+      const digestRes = await api<Digest>(baseUrl, `/api/incidents/open/llm-digest${refresh ? "?refresh=true" : ""}`);
       setDigest(digestRes);
     } catch (e: any) {
       setError(e.message || "Failed to load digest");
@@ -591,7 +591,7 @@ export default function HomelabIncidentDashboard() {
                   <Button variant="outline" className="border-slate-700 bg-slate-900" onClick={loadIncidents} disabled={incidentsLoading}>
                     <RefreshCw className={classNames("h-4 w-4 mr-2", incidentsLoading && "animate-spin")} /> Refresh
                   </Button>
-                  <Button variant="outline" className="border-slate-700 bg-slate-900" onClick={loadDigest} disabled={digestLoading} title="Re-run LLM digest (slow)">
+                  <Button variant="outline" className="border-slate-700 bg-slate-900" onClick={() => loadDigest(true)} disabled={digestLoading} title="Re-run LLM digest (slow)">
                     <RefreshCw className={classNames("h-4 w-4 mr-2", digestLoading && "animate-spin")} /> Regen Digest
                   </Button>
                 </div>
@@ -732,7 +732,7 @@ export default function HomelabIncidentDashboard() {
               </div>
             </CardHeader>
             <CardContent className="h-[580px] flex flex-col">
-              <ScrollArea className="flex-1 pr-3">
+              <ScrollArea className="flex-1 min-h-0 pr-3">
                 <div className="space-y-3">
                   {filteredIncidents.length === 0 && !incidentsLoading && (
                     <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-400">
