@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, CheckCircle2, RefreshCw, ServerCrash, Search, Activity, FileSearch, ShieldAlert, X, ChevronDown, ChevronUp, BellOff, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, RefreshCw, ServerCrash, Search, Activity, FileSearch, ShieldAlert, X, ChevronDown, ChevronUp, BellOff, Trash2, List } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -116,6 +116,22 @@ type SuppressRule = {
   event_class: string;
   reason: string;
   created_at: string;
+};
+
+type LogEvent = {
+  id: number;
+  ts: string;
+  created_at: string;
+  host: string;
+  container: string;
+  stream: string;
+  level: string;
+  severity_norm: string;
+  event_class: string;
+  message: string;
+  processed: number;
+  fingerprint: string;
+  incident_id: number | null;
 };
 
 type AnalyzeResponse = {
@@ -236,7 +252,14 @@ export default function HomelabIncidentDashboard() {
   const [showSuppressRules, setShowSuppressRules] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showRawEvents, setShowRawEvents] = useState(false);
+  const [showEventsPanel, setShowEventsPanel] = useState(false);
+  const [logEvents, setLogEvents] = useState<LogEvent[]>([]);
+  const [logEventsTotal, setLogEventsTotal] = useState(0);
+  const [logEventsLoading, setLogEventsLoading] = useState(false);
+  const [logHostFilter, setLogHostFilter] = useState("");
+  const [logContainerFilter, setLogContainerFilter] = useState("");
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const eventsRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const filteredIncidents = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -435,6 +458,22 @@ export default function HomelabIncidentDashboard() {
     }
   }
 
+  async function loadLogEvents(append = false) {
+    setLogEventsLoading(true);
+    try {
+      const p = new URLSearchParams({ limit: "100", offset: append ? String(logEvents.length) : "0" });
+      if (logHostFilter.trim()) p.set("host", logHostFilter.trim());
+      if (logContainerFilter.trim()) p.set("container", logContainerFilter.trim());
+      const res = await api<{ items: LogEvent[]; total: number }>(baseUrl, `/api/events?${p}`);
+      setLogEvents((prev) => append ? [...prev, ...(res.items || [])] : (res.items || []));
+      setLogEventsTotal(res.total ?? 0);
+    } catch {
+      // non-fatal
+    } finally {
+      setLogEventsLoading(false);
+    }
+  }
+
   useEffect(() => {
     loadIncidents();
     loadDigest();
@@ -492,6 +531,36 @@ export default function HomelabIncidentDashboard() {
     if (showSuppressRules) loadSuppressRules();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showSuppressRules]);
+
+  // Load + auto-refresh events panel when open
+  const showEventsPanelRef = useRef(showEventsPanel);
+  const baseUrlRefE = useRef(baseUrl);
+  const logHostFilterRef = useRef(logHostFilter);
+  const logContainerFilterRef = useRef(logContainerFilter);
+  useEffect(() => { showEventsPanelRef.current = showEventsPanel; }, [showEventsPanel]);
+  useEffect(() => { baseUrlRefE.current = baseUrl; }, [baseUrl]);
+  useEffect(() => { logHostFilterRef.current = logHostFilter; }, [logHostFilter]);
+  useEffect(() => { logContainerFilterRef.current = logContainerFilter; }, [logContainerFilter]);
+
+  useEffect(() => {
+    if (showEventsPanel) loadLogEvents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showEventsPanel, logHostFilter, logContainerFilter]);
+
+  useEffect(() => {
+    eventsRefreshRef.current = setInterval(async () => {
+      if (!showEventsPanelRef.current) return;
+      try {
+        const p = new URLSearchParams({ limit: "100", offset: "0" });
+        if (logHostFilterRef.current.trim()) p.set("host", logHostFilterRef.current.trim());
+        if (logContainerFilterRef.current.trim()) p.set("container", logContainerFilterRef.current.trim());
+        const res = await api<{ items: LogEvent[]; total: number }>(baseUrlRefE.current, `/api/events?${p}`);
+        setLogEvents(res.items || []);
+        setLogEventsTotal(res.total ?? 0);
+      } catch { /* silent */ }
+    }, 10_000);
+    return () => { if (eventsRefreshRef.current) clearInterval(eventsRefreshRef.current); };
+  }, []);
 
   const currentAnalysis = analyzeResult?.analysis || detail?.incident?.analysis_json || null;
   const hasMore = incidents.length < incidentTotal;
@@ -1147,6 +1216,118 @@ export default function HomelabIncidentDashboard() {
                   </div>
                 );
               })}
+            </CardContent>
+          )}
+        </Card>
+
+        {/* Recent events panel */}
+        <Card className="border-slate-800 bg-slate-900/70 rounded-3xl shadow-2xl">
+          <button
+            className="w-full flex items-center justify-between p-6 text-left"
+            onClick={() => setShowEventsPanel((v) => !v)}
+          >
+            <div>
+              <div className="text-base font-semibold flex items-center gap-2 text-slate-200">
+                <List className="h-5 w-5 text-sky-400" />
+                Recent events
+                {logEventsTotal > 0 && (
+                  <Badge variant="outline" className="border-sky-800 text-sky-300 ml-1">
+                    {logEventsTotal.toLocaleString()} total
+                  </Badge>
+                )}
+              </div>
+              <div className="text-sm text-slate-400 mt-1">
+                Last received log events, auto-refreshes every 10s.
+              </div>
+            </div>
+            {showEventsPanel ? <ChevronUp className="h-5 w-5 text-slate-400" /> : <ChevronDown className="h-5 w-5 text-slate-400" />}
+          </button>
+          {showEventsPanel && (
+            <CardContent className="pt-0 space-y-3">
+              <div className="flex gap-2 flex-wrap">
+                <Input
+                  value={logHostFilter}
+                  onChange={(e) => setLogHostFilter(e.target.value)}
+                  placeholder="Filter by host…"
+                  className="bg-slate-950 border-slate-800 rounded-2xl w-48 text-sm"
+                />
+                <Input
+                  value={logContainerFilter}
+                  onChange={(e) => setLogContainerFilter(e.target.value)}
+                  placeholder="Filter by container…"
+                  className="bg-slate-950 border-slate-800 rounded-2xl w-52 text-sm"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="rounded-2xl border-slate-700 bg-slate-900"
+                  onClick={() => loadLogEvents()}
+                  disabled={logEventsLoading}
+                >
+                  <RefreshCw className={classNames("h-4 w-4", logEventsLoading && "animate-spin")} />
+                </Button>
+              </div>
+              {logEventsLoading && logEvents.length === 0 && (
+                <div className="text-sm text-slate-400">Loading…</div>
+              )}
+              {!logEventsLoading && logEvents.length === 0 && (
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-400">
+                  No events found.
+                </div>
+              )}
+              <ScrollArea className="h-[480px] pr-3">
+                <div className="space-y-1.5">
+                  {logEvents.map((ev) => (
+                    <div
+                      key={ev.id}
+                      className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2 text-sm font-mono grid gap-x-3"
+                      style={{ gridTemplateColumns: "auto 1fr" }}
+                    >
+                      <div className="text-slate-500 text-xs whitespace-nowrap pt-0.5 space-y-0.5">
+                        <div>{fmtDate(ev.ts)}</div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-slate-400">{ev.host}</span>
+                          <span className="text-slate-600">·</span>
+                          <span className="text-sky-400/70">{ev.container}</span>
+                          {ev.level && (
+                            <>
+                              <span className="text-slate-600">·</span>
+                              <Badge variant="outline" className={classNames("border text-xs px-1 py-0", severityTone(ev.severity_norm || ev.level))}>
+                                {ev.level}
+                              </Badge>
+                            </>
+                          )}
+                          {ev.incident_id && (
+                            <>
+                              <span className="text-slate-600">·</span>
+                              <button
+                                className="text-orange-400/80 hover:text-orange-300 text-xs"
+                                onClick={() => { setSelectedId(ev.incident_id!); setShowEventsPanel(false); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                                title={`Jump to incident #${ev.incident_id}`}
+                              >
+                                #{ev.incident_id}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-slate-200 leading-5 break-all">{ev.message}</div>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+              {logEvents.length < logEventsTotal && (
+                <Button
+                  variant="outline"
+                  className="w-full rounded-2xl border-slate-700 bg-slate-950/60"
+                  onClick={() => loadLogEvents(true)}
+                  disabled={logEventsLoading}
+                >
+                  {logEventsLoading
+                    ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Loading…</>
+                    : `Load more (${logEventsTotal - logEvents.length} remaining)`}
+                </Button>
+              )}
             </CardContent>
           )}
         </Card>
