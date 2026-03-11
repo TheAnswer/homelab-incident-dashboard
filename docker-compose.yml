@@ -1,0 +1,7 @@
+services:
+  dashboard:
+    build: .
+    container_name: homelab-incident-dashboard
+    ports:
+      - "3000:80"
+    restart: unless-stopped
