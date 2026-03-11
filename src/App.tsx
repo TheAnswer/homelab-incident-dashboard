@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { AlertTriangle, CheckCircle2, RefreshCw, ServerCrash, Search, Activity, FileSearch, ShieldAlert } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -179,9 +179,11 @@ async function api<T>(baseUrl: string, path: string, init?: RequestInit): Promis
   return res.json();
 }
 
+const STORAGE_KEY = "homelab_base_url";
+
 export default function HomelabIncidentDashboard() {
-  const [baseUrl, setBaseUrl] = useState(DEFAULT_BASE_URL);
-  const [draftBaseUrl, setDraftBaseUrl] = useState(DEFAULT_BASE_URL);
+  const [baseUrl, setBaseUrl] = useState(() => localStorage.getItem(STORAGE_KEY) || DEFAULT_BASE_URL);
+  const [draftBaseUrl, setDraftBaseUrl] = useState(() => localStorage.getItem(STORAGE_KEY) || DEFAULT_BASE_URL);
   const [digest, setDigest] = useState<Digest | null>(null);
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -190,10 +192,13 @@ export default function HomelabIncidentDashboard() {
   const [analyzeResult, setAnalyzeResult] = useState<AnalyzeResponse | null>(null);
   const [statusFilter, setStatusFilter] = useState("open");
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [incidentsLoading, setIncidentsLoading] = useState(false);
+  const [digestLoading, setDigestLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [analyzeLoading, setAnalyzeLoading] = useState(false);
+  const [closeLoading, setCloseLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const filteredIncidents = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -212,27 +217,34 @@ export default function HomelabIncidentDashboard() {
     });
   }, [incidents, search]);
 
-  async function loadOverview() {
-    setLoading(true);
+  async function loadIncidents() {
+    setIncidentsLoading(true);
     setError(null);
     try {
-      const [digestRes, incidentsRes] = await Promise.all([
-        api<Digest>(baseUrl, "/api/incidents/open/llm-digest"),
-        api<{ items: Incident[] }>(baseUrl, `/api/incidents?status=${statusFilter}&limit=50`),
-      ]);
-      setDigest(digestRes);
+      const incidentsRes = await api<{ items: Incident[] }>(baseUrl, `/api/incidents?status=${statusFilter}&limit=50`);
       setIncidents(incidentsRes.items || []);
 
-      if (!selectedId && incidentsRes.items?.length) {
-        setSelectedId(incidentsRes.items[0].id);
-      }
-      if (selectedId && !incidentsRes.items.some((i) => i.id === selectedId)) {
-        setSelectedId(incidentsRes.items[0]?.id ?? null);
-      }
+      setSelectedId((prev) => {
+        if (!prev && incidentsRes.items?.length) return incidentsRes.items[0].id;
+        if (prev && !incidentsRes.items.some((i) => i.id === prev)) return incidentsRes.items[0]?.id ?? null;
+        return prev;
+      });
     } catch (e: any) {
-      setError(e.message || "Failed to load dashboard data");
+      setError(e.message || "Failed to load incidents");
     } finally {
-      setLoading(false);
+      setIncidentsLoading(false);
+    }
+  }
+
+  async function loadDigest() {
+    setDigestLoading(true);
+    try {
+      const digestRes = await api<Digest>(baseUrl, "/api/incidents/open/llm-digest");
+      setDigest(digestRes);
+    } catch (e: any) {
+      setError(e.message || "Failed to load digest");
+    } finally {
+      setDigestLoading(false);
     }
   }
 
@@ -263,7 +275,7 @@ export default function HomelabIncidentDashboard() {
         method: "POST",
       });
       setAnalyzeResult(result);
-      await loadOverview();
+      await loadIncidents();
       await loadIncident(selectedId);
     } catch (e: any) {
       setError(e.message || "Failed to analyze incident");
@@ -272,10 +284,54 @@ export default function HomelabIncidentDashboard() {
     }
   }
 
+  async function closeIncident() {
+    if (!selectedId) return;
+    setCloseLoading(true);
+    setError(null);
+    try {
+      await api(baseUrl, `/api/incidents/${selectedId}?status=closed`, { method: "PATCH" });
+      await loadIncidents();
+    } catch (e: any) {
+      setError(e.message || "Failed to close incident");
+    } finally {
+      setCloseLoading(false);
+    }
+  }
+
   useEffect(() => {
-    loadOverview();
+    loadIncidents();
+    loadDigest();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [baseUrl, statusFilter]);
+  }, [baseUrl]);
+
+  // Reload incidents (no LLM) when filter changes
+  useEffect(() => {
+    loadIncidents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter]);
+
+  // Auto-refresh incident list every 30s using a ref to avoid stale closures
+  const baseUrlRef = useRef(baseUrl);
+  const statusFilterRef = useRef(statusFilter);
+  useEffect(() => { baseUrlRef.current = baseUrl; }, [baseUrl]);
+  useEffect(() => { statusFilterRef.current = statusFilter; }, [statusFilter]);
+
+  useEffect(() => {
+    autoRefreshRef.current = setInterval(async () => {
+      try {
+        const res = await api<{ items: Incident[] }>(
+          baseUrlRef.current,
+          `/api/incidents?status=${statusFilterRef.current}&limit=50`
+        );
+        setIncidents(res.items || []);
+      } catch {
+        // silent — user will see stale data until next successful refresh
+      }
+    }, 30_000);
+    return () => {
+      if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (selectedId != null) {
@@ -284,6 +340,7 @@ export default function HomelabIncidentDashboard() {
       setDetail(null);
       setContext(null);
       setAnalyzeResult(null);
+      setError(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
@@ -313,8 +370,11 @@ export default function HomelabIncidentDashboard() {
                   <Badge variant="outline" className={classNames("border", severityTone(digest?.overall_status))}>
                     {(digest?.overall_status || "unknown").toUpperCase()}
                   </Badge>
-                  <Button variant="outline" className="border-slate-700 bg-slate-900" onClick={loadOverview} disabled={loading}>
-                    <RefreshCw className={classNames("h-4 w-4 mr-2", loading && "animate-spin")} /> Refresh
+                  <Button variant="outline" className="border-slate-700 bg-slate-900" onClick={loadIncidents} disabled={incidentsLoading}>
+                    <RefreshCw className={classNames("h-4 w-4 mr-2", incidentsLoading && "animate-spin")} /> Refresh
+                  </Button>
+                  <Button variant="outline" className="border-slate-700 bg-slate-900" onClick={loadDigest} disabled={digestLoading} title="Re-run LLM digest (slow)">
+                    <RefreshCw className={classNames("h-4 w-4 mr-2", digestLoading && "animate-spin")} /> Regen Digest
                   </Button>
                 </div>
               </div>
@@ -359,7 +419,9 @@ export default function HomelabIncidentDashboard() {
                 <Button
                   className="rounded-2xl"
                   onClick={() => {
-                    setBaseUrl(draftBaseUrl.trim());
+                    const url = draftBaseUrl.trim();
+                    localStorage.setItem(STORAGE_KEY, url);
+                    setBaseUrl(url);
                     setSelectedId(null);
                   }}
                 >
@@ -463,6 +525,9 @@ export default function HomelabIncidentDashboard() {
                         <span>events: {incident.event_count}</span>
                         <span>status: {incident.status}</span>
                         <span>last seen: {fmtDate(incident.last_seen)}</span>
+                        {incident.last_analyzed_at && (
+                          <span className="text-sky-400/70">analyzed: {fmtDate(incident.last_analyzed_at)}</span>
+                        )}
                       </div>
                     </motion.button>
                   ))}
@@ -481,10 +546,23 @@ export default function HomelabIncidentDashboard() {
                       {selectedId ? `Selected incident #${selectedId}` : "Select an incident to inspect."}
                     </CardDescription>
                   </div>
-                  <Button onClick={analyzeIncident} disabled={!selectedId || analyzeLoading} className="rounded-2xl">
-                    <RefreshCw className={classNames("h-4 w-4 mr-2", analyzeLoading && "animate-spin")} />
-                    Analyze incident
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button onClick={analyzeIncident} disabled={!selectedId || analyzeLoading} className="rounded-2xl">
+                      <RefreshCw className={classNames("h-4 w-4 mr-2", analyzeLoading && "animate-spin")} />
+                      Analyze
+                    </Button>
+                    {detail?.incident?.status === "open" && (
+                      <Button
+                        variant="outline"
+                        className="rounded-2xl border-slate-700 bg-slate-900"
+                        onClick={closeIncident}
+                        disabled={closeLoading}
+                      >
+                        {closeLoading ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : null}
+                        Close incident
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
