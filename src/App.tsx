@@ -554,6 +554,16 @@ export default function HomelabIncidentDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showSuppressRules]);
 
+  // Auto-fill message_regex pattern whenever the panel opens or scope switches to message_regex
+  useEffect(() => {
+    if (showSuppressInput && suppressScope === "message_regex" && !suppressPattern) {
+      const firstEvent = detail?.events?.[0];
+      const template = firstEvent?.message_template || firstEvent?.message || "";
+      if (template) setSuppressPattern(templateToRegex(template));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showSuppressInput, suppressScope]);
+
   // Load + auto-refresh events panel when open
   const showEventsPanelRef = useRef(showEventsPanel);
   const baseUrlRefE = useRef(baseUrl);
@@ -895,14 +905,7 @@ export default function HomelabIncidentDashboard() {
                           return (
                             <button
                               key={s}
-                              onClick={() => {
-                                setSuppressScope(s);
-                                if (s === "message_regex" && !suppressPattern) {
-                                  const firstEvent = detail.events?.[0];
-                                  const template = firstEvent?.message_template || firstEvent?.message || "";
-                                  setSuppressPattern(template ? templateToRegex(template) : "");
-                                }
-                              }}
+                              onClick={() => setSuppressScope(s)}
                               title={s === "fingerprint" ? fp : undefined}
                               className={classNames(
                                 "rounded-xl border p-2 text-left text-xs transition-all",
