@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, CheckCircle2, RefreshCw, ServerCrash, Search, Activity, FileSearch, ShieldAlert } from "lucide-react";
+import { AlertTriangle, CheckCircle2, RefreshCw, ServerCrash, Search, Activity, FileSearch, ShieldAlert, X, ChevronDown, ChevronUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -186,18 +186,24 @@ export default function HomelabIncidentDashboard() {
   const [draftBaseUrl, setDraftBaseUrl] = useState(() => localStorage.getItem(STORAGE_KEY) || DEFAULT_BASE_URL);
   const [digest, setDigest] = useState<Digest | null>(null);
   const [incidents, setIncidents] = useState<Incident[]>([]);
+  const [incidentTotal, setIncidentTotal] = useState(0);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<IncidentDetail | null>(null);
   const [context, setContext] = useState<IncidentContext | null>(null);
   const [analyzeResult, setAnalyzeResult] = useState<AnalyzeResponse | null>(null);
   const [statusFilter, setStatusFilter] = useState("open");
+  const [severityFilter, setSeverityFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [incidentsLoading, setIncidentsLoading] = useState(false);
+  const [loadMoreLoading, setLoadMoreLoading] = useState(false);
   const [digestLoading, setDigestLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [contextLoading, setContextLoading] = useState(false);
   const [analyzeLoading, setAnalyzeLoading] = useState(false);
   const [closeLoading, setCloseLoading] = useState(false);
+  const [reopenLoading, setReopenLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showRawEvents, setShowRawEvents] = useState(false);
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const filteredIncidents = useMemo(() => {
@@ -217,22 +223,47 @@ export default function HomelabIncidentDashboard() {
     });
   }, [incidents, search]);
 
+  function buildIncidentsUrl(status: string, severity: string, limit: number, offset = 0) {
+    let url = `/api/incidents?status=${status}&limit=${limit}&offset=${offset}`;
+    if (severity && severity !== "all") url += `&severity=${severity}`;
+    return url;
+  }
+
   async function loadIncidents() {
     setIncidentsLoading(true);
     setError(null);
     try {
-      const incidentsRes = await api<{ items: Incident[] }>(baseUrl, `/api/incidents?status=${statusFilter}&limit=50`);
-      setIncidents(incidentsRes.items || []);
-
+      const res = await api<{ items: Incident[]; total: number }>(
+        baseUrl,
+        buildIncidentsUrl(statusFilter, severityFilter, 50)
+      );
+      setIncidents(res.items || []);
+      setIncidentTotal(res.total ?? res.items?.length ?? 0);
       setSelectedId((prev) => {
-        if (!prev && incidentsRes.items?.length) return incidentsRes.items[0].id;
-        if (prev && !incidentsRes.items.some((i) => i.id === prev)) return incidentsRes.items[0]?.id ?? null;
+        if (!prev && res.items?.length) return res.items[0].id;
+        if (prev && !res.items.some((i) => i.id === prev)) return res.items[0]?.id ?? null;
         return prev;
       });
     } catch (e: any) {
       setError(e.message || "Failed to load incidents");
     } finally {
       setIncidentsLoading(false);
+    }
+  }
+
+  async function loadMoreIncidents() {
+    setLoadMoreLoading(true);
+    try {
+      const res = await api<{ items: Incident[]; total: number }>(
+        baseUrl,
+        buildIncidentsUrl(statusFilter, severityFilter, 50, incidents.length)
+      );
+      setIncidents((prev) => [...prev, ...(res.items || [])]);
+      setIncidentTotal(res.total ?? 0);
+    } catch (e: any) {
+      setError(e.message || "Failed to load more incidents");
+    } finally {
+      setLoadMoreLoading(false);
     }
   }
 
@@ -248,22 +279,36 @@ export default function HomelabIncidentDashboard() {
     }
   }
 
-  async function loadIncident(incidentId: number) {
+  async function loadDetail(incidentId: number) {
     setDetailLoading(true);
-    setError(null);
     try {
-      const [detailRes, contextRes] = await Promise.all([
-        api<IncidentDetail>(baseUrl, `/api/incidents/${incidentId}`),
-        api<IncidentContext>(baseUrl, `/api/incidents/${incidentId}/llm-context`),
-      ]);
+      const detailRes = await api<IncidentDetail>(baseUrl, `/api/incidents/${incidentId}`);
       setDetail(detailRes);
-      setContext(contextRes);
       setAnalyzeResult(null);
+      setShowRawEvents(false);
     } catch (e: any) {
       setError(e.message || "Failed to load incident detail");
     } finally {
       setDetailLoading(false);
     }
+  }
+
+  async function loadContext(incidentId: number) {
+    setContextLoading(true);
+    try {
+      const contextRes = await api<IncidentContext>(baseUrl, `/api/incidents/${incidentId}/llm-context`);
+      setContext(contextRes);
+    } catch {
+      setContext(null);
+    } finally {
+      setContextLoading(false);
+    }
+  }
+
+  async function loadIncident(incidentId: number) {
+    setError(null);
+    loadDetail(incidentId);
+    loadContext(incidentId);
   }
 
   async function analyzeIncident() {
@@ -291,10 +336,26 @@ export default function HomelabIncidentDashboard() {
     try {
       await api(baseUrl, `/api/incidents/${selectedId}?status=closed`, { method: "PATCH" });
       await loadIncidents();
+      await loadDetail(selectedId);
     } catch (e: any) {
       setError(e.message || "Failed to close incident");
     } finally {
       setCloseLoading(false);
+    }
+  }
+
+  async function reopenIncident() {
+    if (!selectedId) return;
+    setReopenLoading(true);
+    setError(null);
+    try {
+      await api(baseUrl, `/api/incidents/${selectedId}?status=open`, { method: "PATCH" });
+      await loadIncidents();
+      await loadDetail(selectedId);
+    } catch (e: any) {
+      setError(e.message || "Failed to reopen incident");
+    } finally {
+      setReopenLoading(false);
     }
   }
 
@@ -304,26 +365,27 @@ export default function HomelabIncidentDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseUrl]);
 
-  // Reload incidents (no LLM) when filter changes
+  // Reload incidents (no LLM) when filters change
   useEffect(() => {
     loadIncidents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter]);
+  }, [statusFilter, severityFilter]);
 
-  // Auto-refresh incident list every 30s using a ref to avoid stale closures
+  // Auto-refresh incident list every 30s using refs to avoid stale closures
   const baseUrlRef = useRef(baseUrl);
   const statusFilterRef = useRef(statusFilter);
+  const severityFilterRef = useRef(severityFilter);
   useEffect(() => { baseUrlRef.current = baseUrl; }, [baseUrl]);
   useEffect(() => { statusFilterRef.current = statusFilter; }, [statusFilter]);
+  useEffect(() => { severityFilterRef.current = severityFilter; }, [severityFilter]);
 
   useEffect(() => {
     autoRefreshRef.current = setInterval(async () => {
       try {
-        const res = await api<{ items: Incident[] }>(
-          baseUrlRef.current,
-          `/api/incidents?status=${statusFilterRef.current}&limit=50`
-        );
+        const url = buildIncidentsUrl(statusFilterRef.current, severityFilterRef.current, 50);
+        const res = await api<{ items: Incident[]; total: number }>(baseUrlRef.current, url);
         setIncidents(res.items || []);
+        setIncidentTotal(res.total ?? res.items?.length ?? 0);
       } catch {
         // silent — user will see stale data until next successful refresh
       }
@@ -346,6 +408,7 @@ export default function HomelabIncidentDashboard() {
   }, [selectedId]);
 
   const currentAnalysis = analyzeResult?.analysis || detail?.incident?.analysis_json || null;
+  const hasMore = incidents.length < incidentTotal;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-6">
@@ -454,7 +517,17 @@ export default function HomelabIncidentDashboard() {
 
         {error && (
           <Card className="border-red-900 bg-red-950/40 rounded-3xl">
-            <CardContent className="p-4 text-red-200">{error}</CardContent>
+            <CardContent className="p-4 flex items-start justify-between gap-3">
+              <span className="text-red-200">{error}</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="shrink-0 text-red-400 hover:text-red-200 hover:bg-red-950/60 -mt-1 -mr-1"
+                onClick={() => setError(null)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </CardContent>
           </Card>
         )}
 
@@ -464,18 +537,34 @@ export default function HomelabIncidentDashboard() {
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <CardTitle className="text-lg flex items-center gap-2"><FileSearch className="h-5 w-5" /> Incidents</CardTitle>
-                  <CardDescription>Filter, search, and select incidents for investigation.</CardDescription>
+                  <CardDescription>
+                    {incidentsLoading ? "Loading…" : `${incidentTotal} total · ${filteredIncidents.length} shown`}
+                  </CardDescription>
                 </div>
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-[140px] bg-slate-950 border-slate-800 rounded-2xl">
-                    <SelectValue placeholder="Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="open">Open</SelectItem>
-                    <SelectItem value="closed">Closed</SelectItem>
-                    <SelectItem value="all">All</SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="flex items-center gap-2">
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger className="w-[120px] bg-slate-950 border-slate-800 rounded-2xl">
+                      <SelectValue placeholder="Status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="open">Open</SelectItem>
+                      <SelectItem value="closed">Closed</SelectItem>
+                      <SelectItem value="all">All</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={severityFilter} onValueChange={setSeverityFilter}>
+                    <SelectTrigger className="w-[130px] bg-slate-950 border-slate-800 rounded-2xl">
+                      <SelectValue placeholder="Severity" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All severity</SelectItem>
+                      <SelectItem value="critical">Critical</SelectItem>
+                      <SelectItem value="error">Error</SelectItem>
+                      <SelectItem value="warning">Warning</SelectItem>
+                      <SelectItem value="info">Info</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
@@ -487,10 +576,10 @@ export default function HomelabIncidentDashboard() {
                 />
               </div>
             </CardHeader>
-            <CardContent className="h-[580px]">
-              <ScrollArea className="h-full pr-3">
+            <CardContent className="h-[580px] flex flex-col">
+              <ScrollArea className="flex-1 pr-3">
                 <div className="space-y-3">
-                  {filteredIncidents.length === 0 && (
+                  {filteredIncidents.length === 0 && !incidentsLoading && (
                     <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-400">
                       No incidents matched this view.
                     </div>
@@ -514,16 +603,22 @@ export default function HomelabIncidentDashboard() {
                             {incident.event_class || "unknown"} · {incident.affected_nodes?.join(", ") || "no node"}
                           </div>
                         </div>
-                        <Badge variant="outline" className={classNames("border", severityTone(incident.severity))}>
-                          {incident.severity}
-                        </Badge>
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          <Badge variant="outline" className={classNames("border", severityTone(incident.severity))}>
+                            {incident.severity}
+                          </Badge>
+                          {incident.status === "closed" && (
+                            <Badge variant="outline" className="border-slate-700 text-slate-400 text-xs">
+                              closed
+                            </Badge>
+                          )}
+                        </div>
                       </div>
                       <div className="text-sm text-slate-300 mt-3 line-clamp-3">
                         {incident.summary || "No summary yet."}
                       </div>
                       <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-400">
                         <span>events: {incident.event_count}</span>
-                        <span>status: {incident.status}</span>
                         <span>last seen: {fmtDate(incident.last_seen)}</span>
                         {incident.last_analyzed_at && (
                           <span className="text-sky-400/70">analyzed: {fmtDate(incident.last_analyzed_at)}</span>
@@ -531,6 +626,19 @@ export default function HomelabIncidentDashboard() {
                       </div>
                     </motion.button>
                   ))}
+                  {hasMore && !search && (
+                    <Button
+                      variant="outline"
+                      className="w-full rounded-2xl border-slate-700 bg-slate-950/60"
+                      onClick={loadMoreIncidents}
+                      disabled={loadMoreLoading}
+                    >
+                      {loadMoreLoading
+                        ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" /> Loading…</>
+                        : `Load more (${incidentTotal - incidents.length} remaining)`
+                      }
+                    </Button>
+                  )}
                 </div>
               </ScrollArea>
             </CardContent>
@@ -546,7 +654,7 @@ export default function HomelabIncidentDashboard() {
                       {selectedId ? `Selected incident #${selectedId}` : "Select an incident to inspect."}
                     </CardDescription>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap">
                     <Button onClick={analyzeIncident} disabled={!selectedId || analyzeLoading} className="rounded-2xl">
                       <RefreshCw className={classNames("h-4 w-4 mr-2", analyzeLoading && "animate-spin")} />
                       Analyze
@@ -558,8 +666,19 @@ export default function HomelabIncidentDashboard() {
                         onClick={closeIncident}
                         disabled={closeLoading}
                       >
-                        {closeLoading ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : null}
-                        Close incident
+                        {closeLoading && <RefreshCw className="h-4 w-4 mr-2 animate-spin" />}
+                        Close
+                      </Button>
+                    )}
+                    {detail?.incident?.status === "closed" && (
+                      <Button
+                        variant="outline"
+                        className="rounded-2xl border-emerald-800 bg-slate-900 text-emerald-400 hover:text-emerald-300"
+                        onClick={reopenIncident}
+                        disabled={reopenLoading}
+                      >
+                        {reopenLoading && <RefreshCw className="h-4 w-4 mr-2 animate-spin" />}
+                        Re-open
                       </Button>
                     )}
                   </div>
@@ -567,7 +686,7 @@ export default function HomelabIncidentDashboard() {
               </CardHeader>
               <CardContent className="space-y-4">
                 {!selectedId && <div className="text-sm text-slate-400">No incident selected.</div>}
-                {selectedId && detailLoading && <div className="text-sm text-slate-400">Loading incident details...</div>}
+                {selectedId && detailLoading && <div className="text-sm text-slate-400">Loading incident details…</div>}
                 {detail?.incident && (
                   <>
                     <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 space-y-3">
@@ -594,16 +713,23 @@ export default function HomelabIncidentDashboard() {
                           <CardTitle className="text-base">Representative events</CardTitle>
                         </CardHeader>
                         <CardContent>
-                          <ScrollArea className="h-[260px] pr-3">
-                            <div className="space-y-3">
-                              {context?.representative_events?.map((event) => (
-                                <div key={event.id} className="rounded-2xl border border-slate-800 p-3 text-sm">
-                                  <div className="text-slate-400 text-xs mb-2">{fmtDate(event.ts)} · {event.host} · {event.container}</div>
-                                  <div className="text-slate-200 leading-6">{event.message}</div>
-                                </div>
-                              ))}
-                            </div>
-                          </ScrollArea>
+                          {contextLoading ? (
+                            <div className="text-sm text-slate-400 py-4">Loading context…</div>
+                          ) : (
+                            <ScrollArea className="h-[260px] pr-3">
+                              <div className="space-y-3">
+                                {(context?.representative_events || []).length === 0 && (
+                                  <div className="text-sm text-slate-400">No representative events.</div>
+                                )}
+                                {context?.representative_events?.map((event) => (
+                                  <div key={event.id} className="rounded-2xl border border-slate-800 p-3 text-sm">
+                                    <div className="text-slate-400 text-xs mb-2">{fmtDate(event.ts)} · {event.host} · {event.container}</div>
+                                    <div className="text-slate-200 leading-6">{event.message}</div>
+                                  </div>
+                                ))}
+                              </div>
+                            </ScrollArea>
+                          )}
                         </CardContent>
                       </Card>
 
@@ -644,7 +770,7 @@ export default function HomelabIncidentDashboard() {
                               )}
                             </>
                           ) : (
-                            <div className="text-sm text-slate-400">No analysis available yet. Use “Analyze incident”.</div>
+                            <div className="text-sm text-slate-400">No analysis available yet. Use "Analyze incident".</div>
                           )}
                         </CardContent>
                       </Card>
@@ -656,20 +782,24 @@ export default function HomelabIncidentDashboard() {
                           <CardTitle className="text-base">Similar incidents</CardTitle>
                         </CardHeader>
                         <CardContent>
-                          <ScrollArea className="h-[220px] pr-3">
-                            <div className="space-y-3">
-                              {(context?.similar_incidents || []).length === 0 && (
-                                <div className="text-sm text-slate-400">No similar incidents found.</div>
-                              )}
-                              {(context?.similar_incidents || []).map((incident) => (
-                                <div key={incident.id} className="rounded-2xl border border-slate-800 p-3 text-sm">
-                                  <div className="font-medium">#{incident.id} · {incident.title}</div>
-                                  <div className="text-slate-400 text-xs mt-1">{incident.status} · {fmtDate(incident.last_seen)}</div>
-                                  <div className="text-slate-300 mt-2 leading-6">{incident.summary || "No summary."}</div>
-                                </div>
-                              ))}
-                            </div>
-                          </ScrollArea>
+                          {contextLoading ? (
+                            <div className="text-sm text-slate-400 py-4">Loading context…</div>
+                          ) : (
+                            <ScrollArea className="h-[220px] pr-3">
+                              <div className="space-y-3">
+                                {(context?.similar_incidents || []).length === 0 && (
+                                  <div className="text-sm text-slate-400">No similar incidents found.</div>
+                                )}
+                                {(context?.similar_incidents || []).map((incident) => (
+                                  <div key={incident.id} className="rounded-2xl border border-slate-800 p-3 text-sm">
+                                    <div className="font-medium">#{incident.id} · {incident.title}</div>
+                                    <div className="text-slate-400 text-xs mt-1">{incident.status} · {fmtDate(incident.last_seen)}</div>
+                                    <div className="text-slate-300 mt-2 leading-6">{incident.summary || "No summary."}</div>
+                                  </div>
+                                ))}
+                              </div>
+                            </ScrollArea>
+                          )}
                         </CardContent>
                       </Card>
 
@@ -678,21 +808,56 @@ export default function HomelabIncidentDashboard() {
                           <CardTitle className="text-base">Nearby filtered events</CardTitle>
                         </CardHeader>
                         <CardContent>
-                          <ScrollArea className="h-[220px] pr-3">
-                            <div className="space-y-3">
-                              {(context?.nearby_events_filtered || []).length === 0 && (
-                                <div className="text-sm text-slate-400">No nearby filtered events.</div>
+                          {contextLoading ? (
+                            <div className="text-sm text-slate-400 py-4">Loading context…</div>
+                          ) : (
+                            <ScrollArea className="h-[220px] pr-3">
+                              <div className="space-y-3">
+                                {(context?.nearby_events_filtered || []).length === 0 && (
+                                  <div className="text-sm text-slate-400">No nearby filtered events.</div>
+                                )}
+                                {(context?.nearby_events_filtered || []).map((event) => (
+                                  <div key={event.id} className="rounded-2xl border border-slate-800 p-3 text-sm">
+                                    <div className="text-xs text-slate-400 mb-1">{fmtDate(event.ts)} · {event.host} · {event.container}</div>
+                                    <div className="text-slate-300 leading-6">{event.message}</div>
+                                  </div>
+                                ))}
+                              </div>
+                            </ScrollArea>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* Raw events collapsible */}
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950/60">
+                      <button
+                        className="w-full flex items-center justify-between p-4 text-sm font-medium text-slate-300 hover:text-slate-100 transition-colors"
+                        onClick={() => setShowRawEvents((v) => !v)}
+                      >
+                        <span>Raw events ({detail.events?.length ?? 0})</span>
+                        {showRawEvents ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                      </button>
+                      {showRawEvents && (
+                        <div className="px-4 pb-4">
+                          <ScrollArea className="h-[320px] pr-3">
+                            <div className="space-y-2">
+                              {(detail.events || []).length === 0 && (
+                                <div className="text-sm text-slate-400">No raw events.</div>
                               )}
-                              {(context?.nearby_events_filtered || []).map((event) => (
-                                <div key={event.id} className="rounded-2xl border border-slate-800 p-3 text-sm">
-                                  <div className="text-xs text-slate-400 mb-1">{fmtDate(event.ts)} · {event.host} · {event.container}</div>
-                                  <div className="text-slate-300 leading-6">{event.message}</div>
+                              {(detail.events || []).map((event) => (
+                                <div key={event.id} className="rounded-xl border border-slate-800 p-3 text-sm font-mono">
+                                  <div className="text-slate-400 text-xs mb-1">
+                                    {fmtDate(event.ts)} · {event.host} · {event.container}
+                                    {event.level && <span className="ml-2 text-slate-500">[{event.level}]</span>}
+                                  </div>
+                                  <div className="text-slate-200 leading-5 break-all">{event.message}</div>
                                 </div>
                               ))}
                             </div>
                           </ScrollArea>
-                        </CardContent>
-                      </Card>
+                        </div>
+                      )}
                     </div>
                   </>
                 )}
