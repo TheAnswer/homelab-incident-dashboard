@@ -152,6 +152,20 @@ const DEFAULT_BASE_URL = "http://192.168.2.44:8088";
  *  1. Escape all regex special chars in the literal parts.
  *  2. Replace <placeholder> tokens with \S+ (non-whitespace run).
  *  3. Prefix with (?i) for case-insensitive matching. */
+/** If the raw string looks like an nxlog JSON wrapper, extract just the inner "message" field.
+ *  Works for both raw messages (JSON.parse) and templates (regex extraction). */
+function extractMessageContent(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("{")) return trimmed;
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (typeof parsed.message === "string" && parsed.message) return parsed.message;
+  } catch {}
+  const m = trimmed.match(/"message":"([\s\S]+?)","(?:source|host|container|stream|level)"/);
+  if (m) return m[1];
+  return trimmed;
+}
+
 /** Test a Python-style regex pattern against an array of strings.
  *  Handles (?i) prefix by converting it to the JS `i` flag.
  *  Returns { valid, error, matchCount } */
@@ -173,7 +187,7 @@ function templateToRegex(template: string): string {
   const parts = template.split(/(<[^>]+>)/);
   const result = parts.map((part) =>
     /^<[^>]+>$/.test(part)
-      ? ".+?"   // lazy match — surrounding literals act as terminators
+      ? "\\S+"  // non-whitespace run — unambiguous, no backtracking
       : part.replace(/[.+*?^${}()|[\]\\]/g, "\\$&")
   );
   return "(?i)" + result.join("");
@@ -558,8 +572,9 @@ export default function HomelabIncidentDashboard() {
   useEffect(() => {
     if (showSuppressInput && suppressScope === "message_regex" && !suppressPattern) {
       const firstEvent = detail?.events?.[0];
-      const template = firstEvent?.message_template || firstEvent?.message || "";
-      if (template) setSuppressPattern(templateToRegex(template));
+      const raw = firstEvent?.message_template || firstEvent?.message || "";
+      const content = extractMessageContent(raw);
+      if (content) setSuppressPattern(templateToRegex(content));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showSuppressInput, suppressScope]);
@@ -937,7 +952,8 @@ export default function HomelabIncidentDashboard() {
                     )}
 
                     {suppressScope === "message_regex" && (() => {
-                      const eventMessages = (detail.events || []).map((e) => e.message);
+                      // Test against extracted inner message (strips nxlog JSON wrapper) for accurate match count
+                      const eventMessages = (detail.events || []).map((e) => extractMessageContent(e.message || e.message_template || ""));
                       const { valid, error: regexError, matchCount } = testRegexPattern(suppressPattern, eventMessages);
                       const total = eventMessages.length;
                       return (
@@ -986,7 +1002,7 @@ export default function HomelabIncidentDashboard() {
                           suppressLoading ||
                           (suppressScope === "event_class_host" && !suppressHost.trim()) ||
                           (suppressScope === "message_regex" && !suppressPattern.trim()) ||
-                          (suppressScope === "message_regex" && suppressPattern.trim().length > 0 && !testRegexPattern(suppressPattern, (detail?.events || []).map((e) => e.message)).valid)
+                          (suppressScope === "message_regex" && suppressPattern.trim().length > 0 && !testRegexPattern(suppressPattern, (detail?.events || []).map((e) => extractMessageContent(e.message || e.message_template || ""))).valid)
                         }
                         className="rounded-2xl bg-orange-700 hover:bg-orange-600 text-white"
                       >
