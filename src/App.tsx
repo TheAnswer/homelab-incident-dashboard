@@ -1086,9 +1086,20 @@ export default function HomelabIncidentDashboard() {
                                   <div className="text-sm text-slate-400">No representative events.</div>
                                 )}
                                 {context?.representative_events?.map((event) => (
-                                  <div key={event.id} className="rounded-2xl border border-slate-800 p-3 text-sm">
-                                    <div className="text-slate-400 text-xs mb-2">{fmtDate(event.ts)} · {event.host} · {event.container}</div>
-                                    <div className="text-slate-200 leading-6">{event.message}</div>
+                                  <div key={event.id} className="rounded-2xl border border-slate-800 p-3 text-sm overflow-hidden">
+                                    <div className="flex items-center gap-2 flex-wrap text-xs mb-2">
+                                      <span className="text-slate-500">{fmtDate(event.ts)}</span>
+                                      <Badge variant="outline" className="border-slate-700 text-slate-400 text-xs py-0">{event.host}</Badge>
+                                      <Badge variant="outline" className="border-slate-700 text-slate-400 text-xs py-0">{event.container}</Badge>
+                                      {event.severity_norm && event.severity_norm !== "info" && (
+                                        <Badge variant="outline" className={classNames("text-xs py-0",
+                                          event.severity_norm === "critical" ? "border-red-800 text-red-400"
+                                          : event.severity_norm === "error" ? "border-orange-800 text-orange-400"
+                                          : "border-yellow-800 text-yellow-400"
+                                        )}>{event.severity_norm}</Badge>
+                                      )}
+                                    </div>
+                                    <pre className="styled-scroll text-xs text-slate-200 font-mono whitespace-pre-wrap break-all leading-relaxed max-h-32 overflow-y-auto">{event.message}</pre>
                                   </div>
                                 ))}
                               </div>
@@ -1363,7 +1374,7 @@ export default function HomelabIncidentDashboard() {
                       </Badge>
                       <span className="text-xs text-slate-500">{fmtDate(entry.sent_at)}</span>
                     </div>
-                    <pre className="text-xs text-slate-300 whitespace-pre-wrap break-words font-mono leading-relaxed max-h-48 overflow-y-auto">{entry.message}</pre>
+                    <pre className="styled-scroll text-xs text-slate-300 whitespace-pre-wrap break-words font-mono leading-relaxed max-h-48 overflow-y-auto">{entry.message}</pre>
                   </div>
                 );
               })}
