@@ -117,6 +117,7 @@ type SuppressRule = {
   event_class: string;
   reason: string;
   created_at: string;
+  hit_count: number;
 };
 
 type LogEvent = {
@@ -1264,7 +1265,12 @@ export default function HomelabIncidentDashboard() {
                         {rule.reason && (
                           <div className="text-xs text-orange-300/70">Reason: {rule.reason}</div>
                         )}
-                        <div className="text-xs text-slate-500">Added {fmtDate(rule.created_at)}</div>
+                        <div className="text-xs text-slate-500">
+                          Added {fmtDate(rule.created_at)}
+                          {rule.hit_count > 0 && (
+                            <span className="ml-3 text-orange-400/70">{rule.hit_count.toLocaleString()} events suppressed</span>
+                          )}
+                        </div>
                       </div>
                       <Button
                         variant="ghost"
