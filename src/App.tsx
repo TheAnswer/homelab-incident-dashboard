@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, CheckCircle2, RefreshCw, ServerCrash, Search, Activity, FileSearch, ShieldAlert, X, ChevronDown, ChevronUp, BellOff, Trash2, List } from "lucide-react";
+import { AlertTriangle, CheckCircle2, RefreshCw, ServerCrash, Search, Activity, FileSearch, ShieldAlert, X, ChevronDown, ChevronUp, BellOff, Trash2, List, Bell } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -134,6 +134,15 @@ type LogEvent = {
   processed: number;
   fingerprint: string;
   incident_id: number | null;
+};
+
+type NtfyEntry = {
+  id: number;
+  sent_at: string;
+  title: string;
+  priority: string;
+  source: string;
+  message: string;
 };
 
 type AnalyzeResponse = {
@@ -295,6 +304,9 @@ export default function HomelabIncidentDashboard() {
   const [logEventsLoading, setLogEventsLoading] = useState(false);
   const [logHostFilter, setLogHostFilter] = useState("");
   const [logContainerFilter, setLogContainerFilter] = useState("");
+  const [showNtfyLog, setShowNtfyLog] = useState(false);
+  const [ntfyLog, setNtfyLog] = useState<NtfyEntry[]>([]);
+  const [ntfyLogLoading, setNtfyLogLoading] = useState(false);
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const eventsRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -495,6 +507,18 @@ export default function HomelabIncidentDashboard() {
     }
   }
 
+  async function loadNtfyLog() {
+    setNtfyLogLoading(true);
+    try {
+      const res = await api<{ items: NtfyEntry[] }>(baseUrl, "/api/ntfy-log?limit=50");
+      setNtfyLog(res.items || []);
+    } catch {
+      // non-fatal
+    } finally {
+      setNtfyLogLoading(false);
+    }
+  }
+
   async function loadLogEvents(append = false) {
     setLogEventsLoading(true);
     try {
@@ -568,6 +592,11 @@ export default function HomelabIncidentDashboard() {
     if (showSuppressRules) loadSuppressRules();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showSuppressRules]);
+
+  useEffect(() => {
+    if (showNtfyLog) loadNtfyLog();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showNtfyLog]);
 
   // Auto-fill message_regex pattern whenever the panel opens or scope switches to message_regex
   useEffect(() => {
@@ -1282,6 +1311,59 @@ export default function HomelabIncidentDashboard() {
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
+                  </div>
+                );
+              })}
+            </CardContent>
+          )}
+        </Card>
+
+        {/* Notification log panel */}
+        <Card className="border-slate-800 bg-slate-900/70 rounded-3xl shadow-2xl">
+          <button
+            className="w-full flex items-center justify-between p-6 text-left"
+            onClick={() => setShowNtfyLog((v) => !v)}
+          >
+            <div>
+              <div className="text-base font-semibold flex items-center gap-2 text-slate-200">
+                <Bell className="h-5 w-5 text-amber-400" />
+                Notification log
+                {ntfyLog.length > 0 && (
+                  <Badge variant="outline" className="border-amber-800 text-amber-300 ml-1">
+                    {ntfyLog.length}
+                  </Badge>
+                )}
+              </div>
+              <div className="text-sm text-slate-400 mt-1">
+                Recent ntfy notifications sent by the system.
+              </div>
+            </div>
+            {showNtfyLog ? <ChevronUp className="h-5 w-5 text-slate-400" /> : <ChevronDown className="h-5 w-5 text-slate-400" />}
+          </button>
+          {showNtfyLog && (
+            <CardContent className="pt-0 space-y-3">
+              {ntfyLogLoading && <div className="text-sm text-slate-400">Loading...</div>}
+              {!ntfyLogLoading && ntfyLog.length === 0 && (
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-400">
+                  No notifications sent yet.
+                </div>
+              )}
+              {ntfyLog.map((entry) => {
+                const priorityColor = entry.priority === "urgent" ? "text-red-400 border-red-800"
+                  : entry.priority === "high" ? "text-orange-400 border-orange-800"
+                  : "text-slate-400 border-slate-700";
+                return (
+                  <div key={entry.id} className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                    <div className="flex items-center gap-2 flex-wrap mb-2">
+                      <Badge variant="outline" className={classNames("text-xs", priorityColor)}>
+                        {entry.priority}
+                      </Badge>
+                      <Badge variant="outline" className="border-slate-700 text-slate-400 text-xs">
+                        {entry.source}
+                      </Badge>
+                      <span className="text-xs text-slate-500">{fmtDate(entry.sent_at)}</span>
+                    </div>
+                    <pre className="text-xs text-slate-300 whitespace-pre-wrap break-words font-mono leading-relaxed max-h-48 overflow-y-auto">{entry.message}</pre>
                   </div>
                 );
               })}
