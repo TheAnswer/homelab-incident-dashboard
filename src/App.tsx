@@ -320,9 +320,7 @@ export default function HomelabIncidentDashboard() {
   const [showNtfyLog, setShowNtfyLog] = useState(false);
   const [ntfyLog, setNtfyLog] = useState<NtfyEntry[]>([]);
   const [ntfyLogLoading, setNtfyLogLoading] = useState(false);
-  const [showLlmStats, setShowLlmStats] = useState(false);
   const [llmStats, setLlmStats] = useState<LlmStats | null>(null);
-  const [llmStatsLoading, setLlmStatsLoading] = useState(false);
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const eventsRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -536,14 +534,11 @@ export default function HomelabIncidentDashboard() {
   }
 
   async function loadLlmStats() {
-    setLlmStatsLoading(true);
     try {
       const res = await api<LlmStats>(baseUrl, "/api/llm-stats?days=30");
       setLlmStats(res);
     } catch {
       // non-fatal
-    } finally {
-      setLlmStatsLoading(false);
     }
   }
 
@@ -567,6 +562,7 @@ export default function HomelabIncidentDashboard() {
     loadIncidents();
     loadDigest();
     loadSuppressRules();
+    loadLlmStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseUrl]);
 
@@ -626,10 +622,6 @@ export default function HomelabIncidentDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showNtfyLog]);
 
-  useEffect(() => {
-    if (showLlmStats) loadLlmStats();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showLlmStats]);
 
   // Auto-fill message_regex pattern whenever the panel opens or scope switches to message_regex
   useEffect(() => {
@@ -708,7 +700,7 @@ export default function HomelabIncidentDashboard() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-3">
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
                 <Card className="rounded-2xl border-slate-800 bg-slate-950/60">
                   <CardContent className="p-4">
                     <div className="text-slate-400 text-sm">Current status</div>
@@ -720,14 +712,24 @@ export default function HomelabIncidentDashboard() {
                 </Card>
                 <Card className="rounded-2xl border-slate-800 bg-slate-950/60">
                   <CardContent className="p-4">
-                    <div className="text-slate-400 text-sm">Open incidents in digest</div>
+                    <div className="text-slate-400 text-sm">Open incidents</div>
                     <div className="mt-2 text-xl font-semibold">{digest?.source_incident_count ?? 0}</div>
                   </CardContent>
                 </Card>
                 <Card className="rounded-2xl border-slate-800 bg-slate-950/60">
                   <CardContent className="p-4">
-                    <div className="text-slate-400 text-sm">Selected backend</div>
-                    <div className="mt-2 text-sm break-all text-slate-200">{baseUrl}</div>
+                    <div className="text-slate-400 text-sm flex items-center gap-1.5"><Cpu className="h-3.5 w-3.5 text-purple-400" /> LLM calls ({llmStats?.period_days ?? 30}d)</div>
+                    <div className="mt-2 text-xl font-semibold text-purple-300">{llmStats?.total_calls ?? 0}</div>
+                    {llmStats && llmStats.total_errors > 0 && (
+                      <div className="text-xs text-red-400 mt-0.5">{llmStats.total_errors} errors</div>
+                    )}
+                  </CardContent>
+                </Card>
+                <Card className="rounded-2xl border-slate-800 bg-slate-950/60">
+                  <CardContent className="p-4">
+                    <div className="text-slate-400 text-sm flex items-center gap-1.5"><Cpu className="h-3.5 w-3.5 text-blue-400" /> LLM avg latency</div>
+                    <div className="mt-2 text-xl font-semibold text-blue-300">{llmStats?.avg_seconds ?? 0}s</div>
+                    <div className="text-xs text-slate-500 mt-0.5">{(llmStats?.total_seconds ?? 0) > 60 ? `${((llmStats?.total_seconds ?? 0) / 60).toFixed(1)}m total` : `${llmStats?.total_seconds ?? 0}s total`}</div>
                   </CardContent>
                 </Card>
               </div>
@@ -1411,111 +1413,6 @@ export default function HomelabIncidentDashboard() {
                   </div>
                 );
               })}
-            </CardContent>
-          )}
-        </Card>
-
-        {/* LLM stats panel */}
-        <Card className="border-slate-800 bg-slate-900/70 rounded-3xl shadow-2xl">
-          <button
-            className="w-full flex items-center justify-between p-6 text-left"
-            onClick={() => setShowLlmStats((v) => !v)}
-          >
-            <div>
-              <div className="text-base font-semibold flex items-center gap-2 text-slate-200">
-                <Cpu className="h-5 w-5 text-purple-400" />
-                LLM Stats
-                {llmStats && (
-                  <Badge variant="outline" className="border-purple-800 text-purple-300 ml-1">
-                    {llmStats.total_calls} calls
-                  </Badge>
-                )}
-              </div>
-              <div className="text-sm text-slate-400 mt-1">
-                Ollama call count, latency, and daily breakdown.
-              </div>
-            </div>
-            {showLlmStats ? <ChevronUp className="h-5 w-5 text-slate-400" /> : <ChevronDown className="h-5 w-5 text-slate-400" />}
-          </button>
-          {showLlmStats && (
-            <CardContent className="pt-0 space-y-4">
-              {llmStatsLoading && <div className="text-sm text-slate-400">Loading...</div>}
-              {!llmStatsLoading && llmStats && (
-                <>
-                  {/* Summary row */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-center">
-                      <div className="text-2xl font-bold text-purple-300">{llmStats.total_calls}</div>
-                      <div className="text-xs text-slate-500">Total calls</div>
-                    </div>
-                    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-center">
-                      <div className="text-2xl font-bold text-red-400">{llmStats.total_errors}</div>
-                      <div className="text-xs text-slate-500">Errors</div>
-                    </div>
-                    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-center">
-                      <div className="text-2xl font-bold text-blue-300">{llmStats.avg_seconds}s</div>
-                      <div className="text-xs text-slate-500">Avg latency</div>
-                    </div>
-                    <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3 text-center">
-                      <div className="text-2xl font-bold text-slate-300">{(llmStats.total_seconds / 60).toFixed(1)}m</div>
-                      <div className="text-xs text-slate-500">Total time</div>
-                    </div>
-                  </div>
-
-                  {/* Min/Max */}
-                  <div className="flex gap-4 text-xs text-slate-500">
-                    <span>Min: <span className="text-slate-300">{llmStats.min_seconds}s</span></span>
-                    <span>Max: <span className="text-slate-300">{llmStats.max_seconds}s</span></span>
-                    <span>Period: <span className="text-slate-300">{llmStats.period_days} days</span></span>
-                  </div>
-
-                  {/* Daily breakdown */}
-                  {llmStats.daily.length > 0 && (
-                    <div>
-                      <div className="text-sm font-medium text-slate-300 mb-2">Daily breakdown</div>
-                      <div className="styled-scroll max-h-48 overflow-y-auto space-y-1">
-                        {llmStats.daily.map((d) => (
-                          <div key={d.day} className="flex items-center gap-3 text-xs font-mono">
-                            <span className="text-slate-500 w-20 shrink-0">{d.day}</span>
-                            <div className="flex-1 bg-slate-800 rounded-full h-2 overflow-hidden">
-                              <div
-                                className="bg-purple-500 h-full rounded-full"
-                                style={{ width: `${Math.min(100, (d.calls / Math.max(...llmStats.daily.map((x) => x.calls))) * 100)}%` }}
-                              />
-                            </div>
-                            <span className="text-slate-400 w-16 text-right">{d.calls} calls</span>
-                            <span className="text-slate-500 w-16 text-right">{d.avg_sec}s avg</span>
-                            {d.errors > 0 && <span className="text-red-400 w-12 text-right">{d.errors} err</span>}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Recent calls */}
-                  {llmStats.recent.length > 0 && (
-                    <div>
-                      <div className="text-sm font-medium text-slate-300 mb-2">Recent calls</div>
-                      <div className="styled-scroll max-h-40 overflow-y-auto space-y-1">
-                        {llmStats.recent.map((r, i) => (
-                          <div key={i} className="flex items-center gap-3 text-xs font-mono">
-                            <span className="text-slate-500 w-36 shrink-0">{fmtDate(r.called_at)}</span>
-                            <span className={classNames("w-14 text-right", r.error ? "text-red-400" : "text-blue-300")}>
-                              {r.duration_seconds.toFixed(1)}s
-                            </span>
-                            {r.error ? <span className="text-red-500">ERROR</span> : null}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-              {!llmStatsLoading && !llmStats && (
-                <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-400">
-                  No LLM stats available yet.
-                </div>
-              )}
             </CardContent>
           )}
         </Card>
