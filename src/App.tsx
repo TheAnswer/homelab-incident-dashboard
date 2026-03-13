@@ -153,9 +153,12 @@ type LlmStats = {
   avg_seconds: number;
   min_seconds: number;
   max_seconds: number;
-  daily: Array<{ day: string; calls: number; errors: number; total_sec: number; avg_sec: number }>;
-  recent: Array<{ called_at: string; duration_seconds: number; error: number }>;
-  session: { total_calls: number; total_errors: number; total_seconds: number; last_call_at: string; last_duration_seconds: number };
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_tokens: number;
+  daily: Array<{ day: string; calls: number; errors: number; total_sec: number; avg_sec: number; prompt_tokens: number; completion_tokens: number }>;
+  recent: Array<{ called_at: string; duration_seconds: number; error: number; prompt_tokens: number; completion_tokens: number; model: string }>;
+  session: { total_calls: number; total_errors: number; total_seconds: number; total_prompt_tokens: number; total_completion_tokens: number; last_call_at: string; last_duration_seconds: number };
 };
 
 type AnalyzeResponse = {
@@ -700,7 +703,7 @@ export default function HomelabIncidentDashboard() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
                 <Card className="rounded-2xl border-slate-800 bg-slate-950/60">
                   <CardContent className="p-4">
                     <div className="text-slate-400 text-sm">Current status</div>
@@ -730,6 +733,13 @@ export default function HomelabIncidentDashboard() {
                     <div className="text-slate-400 text-sm flex items-center gap-1.5"><Cpu className="h-3.5 w-3.5 text-blue-400" /> LLM avg latency</div>
                     <div className="mt-2 text-xl font-semibold text-blue-300">{llmStats?.avg_seconds ?? 0}s</div>
                     <div className="text-xs text-slate-500 mt-0.5">{(llmStats?.total_seconds ?? 0) > 60 ? `${((llmStats?.total_seconds ?? 0) / 60).toFixed(1)}m total` : `${llmStats?.total_seconds ?? 0}s total`}</div>
+                  </CardContent>
+                </Card>
+                <Card className="rounded-2xl border-slate-800 bg-slate-950/60">
+                  <CardContent className="p-4">
+                    <div className="text-slate-400 text-sm flex items-center gap-1.5"><Cpu className="h-3.5 w-3.5 text-emerald-400" /> LLM tokens ({llmStats?.period_days ?? 30}d)</div>
+                    <div className="mt-2 text-xl font-semibold text-emerald-300">{((llmStats?.total_tokens ?? 0) / 1000).toFixed(1)}k</div>
+                    <div className="text-xs text-slate-500 mt-0.5">{((llmStats?.total_prompt_tokens ?? 0) / 1000).toFixed(1)}k in / {((llmStats?.total_completion_tokens ?? 0) / 1000).toFixed(1)}k out</div>
                   </CardContent>
                 </Card>
               </div>
