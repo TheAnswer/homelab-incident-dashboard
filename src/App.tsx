@@ -145,6 +145,18 @@ type NtfyEntry = {
   message: string;
 };
 
+type LlmLogEntry = {
+  id: number;
+  called_at: string;
+  duration_seconds: number;
+  error: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  model: string;
+  caller: string;
+  response_preview: string;
+};
+
 type LlmStats = {
   period_days: number;
   total_calls: number;
@@ -323,6 +335,9 @@ export default function HomelabIncidentDashboard() {
   const [showNtfyLog, setShowNtfyLog] = useState(false);
   const [ntfyLog, setNtfyLog] = useState<NtfyEntry[]>([]);
   const [ntfyLogLoading, setNtfyLogLoading] = useState(false);
+  const [showLlmLog, setShowLlmLog] = useState(false);
+  const [llmLog, setLlmLog] = useState<LlmLogEntry[]>([]);
+  const [llmLogLoading, setLlmLogLoading] = useState(false);
   const [llmStats, setLlmStats] = useState<LlmStats | null>(null);
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const eventsRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -536,6 +551,18 @@ export default function HomelabIncidentDashboard() {
     }
   }
 
+  async function loadLlmLog() {
+    setLlmLogLoading(true);
+    try {
+      const res = await api<{ items: LlmLogEntry[] }>(baseUrl, "/api/llm-log?limit=50");
+      setLlmLog(res.items || []);
+    } catch {
+      // non-fatal
+    } finally {
+      setLlmLogLoading(false);
+    }
+  }
+
   async function loadLlmStats() {
     try {
       const res = await api<LlmStats>(baseUrl, "/api/llm-stats?days=30");
@@ -624,6 +651,11 @@ export default function HomelabIncidentDashboard() {
     if (showNtfyLog) loadNtfyLog();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showNtfyLog]);
+
+  useEffect(() => {
+    if (showLlmLog) loadLlmLog();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showLlmLog]);
 
 
   // Auto-fill message_regex pattern whenever the panel opens or scope switches to message_regex
@@ -1420,6 +1452,69 @@ export default function HomelabIncidentDashboard() {
                       <span className="text-xs text-slate-500">{fmtDate(entry.sent_at)}</span>
                     </div>
                     <pre className="styled-scroll text-xs text-slate-300 whitespace-pre-wrap break-words font-mono leading-relaxed max-h-48 overflow-y-auto">{entry.message}</pre>
+                  </div>
+                );
+              })}
+            </CardContent>
+          )}
+        </Card>
+
+        {/* LLM call log panel */}
+        <Card className="border-slate-800 bg-slate-900/70 rounded-3xl shadow-2xl">
+          <button
+            className="w-full flex items-center justify-between p-6 text-left"
+            onClick={() => setShowLlmLog((v) => !v)}
+          >
+            <div>
+              <div className="text-base font-semibold flex items-center gap-2 text-slate-200">
+                <Cpu className="h-5 w-5 text-purple-400" />
+                LLM call log
+                {llmLog.length > 0 && (
+                  <Badge variant="outline" className="border-purple-800 text-purple-300 ml-1">
+                    {llmLog.length}
+                  </Badge>
+                )}
+              </div>
+              <div className="text-sm text-slate-400 mt-1">
+                Recent Ollama API calls with response previews and token usage.
+              </div>
+            </div>
+            {showLlmLog ? <ChevronUp className="h-5 w-5 text-slate-400" /> : <ChevronDown className="h-5 w-5 text-slate-400" />}
+          </button>
+          {showLlmLog && (
+            <CardContent className="pt-0 space-y-3">
+              {llmLogLoading && <div className="text-sm text-slate-400">Loading...</div>}
+              {!llmLogLoading && llmLog.length === 0 && (
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-400">
+                  No LLM calls recorded yet.
+                </div>
+              )}
+              {llmLog.map((entry) => {
+                const statusColor = entry.error ? "text-red-400 border-red-800" : "text-emerald-400 border-emerald-800";
+                const totalTokens = (entry.prompt_tokens || 0) + (entry.completion_tokens || 0);
+                return (
+                  <div key={entry.id} className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                    <div className="flex items-center gap-2 flex-wrap mb-2">
+                      <Badge variant="outline" className={classNames("text-xs", statusColor)}>
+                        {entry.error ? "error" : "ok"}
+                      </Badge>
+                      <Badge variant="outline" className="border-purple-800 text-purple-300 text-xs">
+                        {entry.caller || "unknown"}
+                      </Badge>
+                      {entry.model && (
+                        <Badge variant="outline" className="border-slate-700 text-slate-400 text-xs">
+                          {entry.model}
+                        </Badge>
+                      )}
+                      <span className="text-xs text-slate-500">{fmtDate(entry.called_at)}</span>
+                      <span className="text-xs text-slate-500 ml-auto">
+                        {entry.duration_seconds.toFixed(1)}s
+                        {totalTokens > 0 && ` · ${totalTokens.toLocaleString()} tok (${(entry.prompt_tokens || 0).toLocaleString()} in / ${(entry.completion_tokens || 0).toLocaleString()} out)`}
+                      </span>
+                    </div>
+                    {entry.response_preview && (
+                      <pre className="styled-scroll text-xs text-slate-300 whitespace-pre-wrap break-words font-mono leading-relaxed max-h-48 overflow-y-auto">{entry.response_preview}</pre>
+                    )}
                   </div>
                 );
               })}
