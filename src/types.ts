@@ -167,7 +167,6 @@ export type EventStats = {
   period_days: number;
   total_stored: number;
   total_ignored: number;
-  total_suppressed: number;
   open_incidents: number;
   active_suppress_rules: number;
   by_severity: Record<string, number>;
