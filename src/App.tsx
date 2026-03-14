@@ -173,6 +173,18 @@ type LlmStats = {
   session: { total_calls: number; total_errors: number; total_seconds: number; total_prompt_tokens: number; total_completion_tokens: number; last_call_at: string; last_duration_seconds: number };
 };
 
+type EventStats = {
+  period_days: number;
+  total_stored: number;
+  open_incidents: number;
+  active_suppress_rules: number;
+  by_severity: Record<string, number>;
+  by_source: Record<string, number>;
+  by_event_class: Record<string, number>;
+  daily: Array<{ day: string; count: number }>;
+  session: { total_received: number; total_stored: number; total_ignored: number };
+};
+
 type AnalyzeResponse = {
   incident_id: number;
   analysis: {
@@ -339,6 +351,7 @@ export default function HomelabIncidentDashboard() {
   const [llmLog, setLlmLog] = useState<LlmLogEntry[]>([]);
   const [llmLogLoading, setLlmLogLoading] = useState(false);
   const [llmStats, setLlmStats] = useState<LlmStats | null>(null);
+  const [eventStats, setEventStats] = useState<EventStats | null>(null);
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const eventsRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -572,6 +585,15 @@ export default function HomelabIncidentDashboard() {
     }
   }
 
+  async function loadEventStats() {
+    try {
+      const res = await api<EventStats>(baseUrl, "/api/event-stats?days=30");
+      setEventStats(res);
+    } catch {
+      // non-fatal
+    }
+  }
+
   async function loadLogEvents(append = false) {
     setLogEventsLoading(true);
     try {
@@ -593,6 +615,7 @@ export default function HomelabIncidentDashboard() {
     loadDigest();
     loadSuppressRules();
     loadLlmStats();
+    loadEventStats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseUrl]);
 
@@ -735,7 +758,7 @@ export default function HomelabIncidentDashboard() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
                 <Card className="rounded-2xl border-slate-800 bg-slate-950/60">
                   <CardContent className="p-4">
                     <div className="text-slate-400 text-sm">Current status</div>
@@ -749,6 +772,13 @@ export default function HomelabIncidentDashboard() {
                   <CardContent className="p-4">
                     <div className="text-slate-400 text-sm">Open incidents</div>
                     <div className="mt-2 text-xl font-semibold">{digest?.source_incident_count ?? 0}</div>
+                  </CardContent>
+                </Card>
+                <Card className="rounded-2xl border-slate-800 bg-slate-950/60">
+                  <CardContent className="p-4">
+                    <div className="text-slate-400 text-sm flex items-center gap-1.5"><Activity className="h-3.5 w-3.5 text-cyan-400" /> Events ({eventStats?.period_days ?? 30}d)</div>
+                    <div className="mt-2 text-xl font-semibold text-cyan-300">{(eventStats?.total_stored ?? 0).toLocaleString()}</div>
+                    <div className="text-xs text-slate-500 mt-0.5">{(eventStats?.session?.total_ignored ?? 0).toLocaleString()} ignored · {eventStats?.active_suppress_rules ?? 0} rules</div>
                   </CardContent>
                 </Card>
                 <Card className="rounded-2xl border-slate-800 bg-slate-950/60">
