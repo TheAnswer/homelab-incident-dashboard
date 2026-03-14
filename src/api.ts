@@ -1,4 +1,4 @@
-export const DEFAULT_BASE_URL = "http://192.168.2.44:8088";
+export const DEFAULT_BASE_URL = "http://ingestlog.home";
 export const STORAGE_KEY = "homelab_base_url";
 
 export async function api<T>(baseUrl: string, path: string, init?: RequestInit): Promise<T> {

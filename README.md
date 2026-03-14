@@ -58,7 +58,7 @@ npm install
 npm run dev
 ```
 
-The dev server starts at `http://localhost:5173` by default. Set the backend URL in the dashboard UI (defaults to `http://192.168.2.44:8088`).
+The dev server starts at `http://localhost:5173` by default. Set the backend URL in the dashboard UI (defaults to `http://ingestlog.home`).
 
 ### Production Build
 
