@@ -464,22 +464,15 @@ export default function HomelabIncidentDashboard() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <Card className="rounded-2xl border-slate-800 bg-slate-950/60">
                   <CardContent className="p-4">
-                    <div className="text-slate-400 text-sm">Status</div>
-                    <div className={classNames("mt-2 text-xl font-semibold flex items-center gap-2", statusTone(digest?.overall_status))}>
-                      {digest?.overall_status === "healthy" ? <CheckCircle2 className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}
-                      {digest?.overall_status || "unknown"}
+                    <div className="text-slate-400 text-sm flex items-center gap-1.5">
+                      {digest?.overall_status === "healthy" ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> : <AlertTriangle className="h-3.5 w-3.5 text-yellow-400" />}
+                      Status · <span className={statusTone(digest?.overall_status)}>{digest?.overall_status || "unknown"}</span>
                     </div>
-                    <div className="text-xs text-slate-500 mt-0.5">{digest?.source_incident_count ?? 0} open incidents</div>
-                  </CardContent>
-                </Card>
-                <Card className="rounded-2xl border-slate-800 bg-slate-950/60">
-                  <CardContent className="p-4">
-                    <div className="text-slate-400 text-sm flex items-center gap-1.5"><Activity className="h-3.5 w-3.5 text-cyan-400" /> Events ({eventStats?.period_days ?? 30}d)</div>
-                    <div className="mt-2 text-xl font-semibold text-cyan-300">{(eventStats?.total_stored ?? 0).toLocaleString()}</div>
-                    <div className="text-xs text-slate-500 mt-0.5">{(eventStats?.session?.total_ignored ?? 0).toLocaleString()} ignored · {eventStats?.active_suppress_rules ?? 0} rules</div>
+                    <div className="mt-2 text-xl font-semibold text-cyan-300">{(eventStats?.total_stored ?? 0).toLocaleString()} <span className="text-sm font-normal text-slate-400">events ({eventStats?.period_days ?? 30}d)</span></div>
+                    <div className="text-xs text-slate-500 mt-0.5">{digest?.source_incident_count ?? 0} open · {(eventStats?.session?.total_ignored ?? 0).toLocaleString()} ignored · {eventStats?.active_suppress_rules ?? 0} rules</div>
                   </CardContent>
                 </Card>
                 <Card className="rounded-2xl border-slate-800 bg-slate-950/60">
