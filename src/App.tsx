@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import type { Digest, Incident, IncidentDetail, IncidentContext, SuppressRule, LogEvent, NtfyEntry, LlmLogEntry, LlmStats, EventStats, AnalyzeResponse } from "./types";
 import { api, DEFAULT_BASE_URL, STORAGE_KEY } from "./api";
 import { extractMessageContent, testRegexPattern, templateToRegex, classNames, fmtDate, severityTone, statusTone } from "./utils";
+import IncidentChat from "./IncidentChat";
 
 export default function HomelabIncidentDashboard() {
   const [baseUrl, setBaseUrl] = useState(() => localStorage.getItem(STORAGE_KEY) || DEFAULT_BASE_URL);
@@ -988,6 +989,8 @@ export default function HomelabIncidentDashboard() {
                         </CardContent>
                       </Card>
                     </div>
+
+                    <IncidentChat baseUrl={baseUrl} incidentId={selectedId!} />
 
                     {/* Raw events collapsible */}
                     <div className="rounded-2xl border border-slate-800 bg-slate-950/60">

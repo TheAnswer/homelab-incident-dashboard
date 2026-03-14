@@ -177,6 +177,16 @@ export type EventStats = {
   session: { total_received: number; total_stored: number; total_ignored: number };
 };
 
+export type ChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type ChatResponse = {
+  response: string;
+  incident_id: number;
+};
+
 export type AnalyzeResponse = {
   incident_id: number;
   analysis: {

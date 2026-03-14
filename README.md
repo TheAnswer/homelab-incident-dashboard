@@ -7,6 +7,7 @@ A React dashboard for visualizing and managing incidents, events, LLM analysis, 
 - **Live digest** — Overall system health status with LLM-generated summary and recommended actions
 - **Incident management** — Browse, filter, search, and drill into incidents with full event timelines
 - **LLM analysis** — Trigger on-demand root-cause analysis for any incident, view confidence and evidence
+- **Incident chat** — Multi-turn conversational investigation with the LLM, scoped to a specific incident with full context
 - **Suppression** — Create suppress rules (fingerprint, event class, host, or regex) directly from incident detail, with live regex testing against matched events
 - **Event browser** — Search and filter raw log events by host, container, and text with auto-refresh
 - **Notification log** — View recent ntfy notification history
@@ -29,6 +30,7 @@ A React dashboard for visualizing and managing incidents, events, LLM analysis, 
 src/
 ├── main.tsx              # Entry point
 ├── App.tsx               # Main dashboard component
+├── IncidentChat.tsx      # LLM chat panel for incident investigation
 ├── types.ts              # Shared type definitions
 ├── api.ts                # Fetch wrapper and config constants
 ├── utils.ts              # Utility functions (formatting, regex, classification)
@@ -100,6 +102,7 @@ The dashboard consumes these endpoints from the Log LLM Watch backend:
 | `PATCH /api/incidents/{id}` | Close or reopen an incident |
 | `POST /api/incidents/{id}/analyze` | Trigger LLM root-cause analysis |
 | `POST /api/incidents/{id}/suppress` | Create suppress rule and close incident |
+| `POST /api/incidents/{id}/chat` | Multi-turn LLM chat for incident investigation |
 | `GET /api/events` | Search raw log events |
 | `GET /api/llm-stats` | LLM usage statistics (calls, tokens, latency) |
 | `GET /api/llm-log` | Recent LLM call log |
