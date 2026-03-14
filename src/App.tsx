@@ -472,7 +472,7 @@ export default function HomelabIncidentDashboard() {
                       Status · <span className={statusTone(digest?.overall_status)}>{digest?.overall_status || "unknown"}</span>
                     </div>
                     <div className="mt-2 text-xl font-semibold text-cyan-300">{(eventStats?.total_stored ?? 0).toLocaleString()} <span className="text-sm font-normal text-slate-400">events ({eventStats?.period_days ?? 30}d)</span></div>
-                    <div className="text-xs text-slate-500 mt-0.5">{digest?.source_incident_count ?? 0} open · {(eventStats?.session?.total_ignored ?? 0).toLocaleString()} ignored · {eventStats?.active_suppress_rules ?? 0} rules</div>
+                    <div className="text-xs text-slate-500 mt-0.5">{digest?.source_incident_count ?? 0} open · {(eventStats?.total_ignored ?? 0).toLocaleString()} ignored · {(eventStats?.total_suppressed ?? 0).toLocaleString()} suppressed · {eventStats?.active_suppress_rules ?? 0} rules</div>
                   </CardContent>
                 </Card>
                 <Card className="rounded-2xl border-slate-800 bg-slate-950/60">
