@@ -758,20 +758,15 @@ export default function HomelabIncidentDashboard() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                 <Card className="rounded-2xl border-slate-800 bg-slate-950/60">
                   <CardContent className="p-4">
-                    <div className="text-slate-400 text-sm">Current status</div>
+                    <div className="text-slate-400 text-sm">Status</div>
                     <div className={classNames("mt-2 text-xl font-semibold flex items-center gap-2", statusTone(digest?.overall_status))}>
                       {digest?.overall_status === "healthy" ? <CheckCircle2 className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}
                       {digest?.overall_status || "unknown"}
                     </div>
-                  </CardContent>
-                </Card>
-                <Card className="rounded-2xl border-slate-800 bg-slate-950/60">
-                  <CardContent className="p-4">
-                    <div className="text-slate-400 text-sm">Open incidents</div>
-                    <div className="mt-2 text-xl font-semibold">{digest?.source_incident_count ?? 0}</div>
+                    <div className="text-xs text-slate-500 mt-0.5">{digest?.source_incident_count ?? 0} open incidents</div>
                   </CardContent>
                 </Card>
                 <Card className="rounded-2xl border-slate-800 bg-slate-950/60">
