@@ -123,6 +123,7 @@ export type LogEvent = {
   processed: number;
   fingerprint: string;
   incident_id: number | null;
+  suppressed: number;
 };
 
 export type NtfyEntry = {

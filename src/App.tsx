@@ -1307,6 +1307,14 @@ export default function HomelabIncidentDashboard() {
                               </Badge>
                             </>
                           )}
+                          {ev.suppressed === 1 && (
+                            <>
+                              <span className="text-slate-600">·</span>
+                              <Badge variant="outline" className="border text-xs px-1 py-0 bg-amber-500/15 text-amber-300 border-amber-500/30">
+                                suppressed
+                              </Badge>
+                            </>
+                          )}
                           {ev.incident_id && (
                             <>
                               <span className="text-slate-600">·</span>
