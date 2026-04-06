@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { AlertTriangle, CheckCircle2, RefreshCw, ServerCrash, Search, Activity, FileSearch, ShieldAlert, X, ChevronDown, ChevronUp, BellOff, Trash2, List, Bell, Cpu } from "lucide-react";
+import { AlertTriangle, CheckCircle2, RefreshCw, ServerCrash, Search, Activity, FileSearch, ShieldAlert, X, ChevronDown, ChevronUp, BellOff, Trash2, List, Bell, Cpu, CalendarDays, CalendarRange } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -57,6 +57,12 @@ export default function HomelabIncidentDashboard() {
   const [showLlmLog, setShowLlmLog] = useState(false);
   const [llmLog, setLlmLog] = useState<LlmLogEntry[]>([]);
   const [llmLogLoading, setLlmLogLoading] = useState(false);
+  const [showDailyReports, setShowDailyReports] = useState(false);
+  const [dailyReports, setDailyReports] = useState<NtfyEntry[]>([]);
+  const [dailyReportsLoading, setDailyReportsLoading] = useState(false);
+  const [showWeeklyReports, setShowWeeklyReports] = useState(false);
+  const [weeklyReports, setWeeklyReports] = useState<NtfyEntry[]>([]);
+  const [weeklyReportsLoading, setWeeklyReportsLoading] = useState(false);
   const [llmStats, setLlmStats] = useState<LlmStats | null>(null);
   const [eventStats, setEventStats] = useState<EventStats | null>(null);
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -283,6 +289,30 @@ export default function HomelabIncidentDashboard() {
     }
   }
 
+  async function loadDailyReports() {
+    setDailyReportsLoading(true);
+    try {
+      const res = await api<{ items: NtfyEntry[] }>(baseUrl, "/api/reports/daily?limit=50");
+      setDailyReports(res.items || []);
+    } catch {
+      // non-fatal
+    } finally {
+      setDailyReportsLoading(false);
+    }
+  }
+
+  async function loadWeeklyReports() {
+    setWeeklyReportsLoading(true);
+    try {
+      const res = await api<{ items: NtfyEntry[] }>(baseUrl, "/api/reports/weekly?limit=50");
+      setWeeklyReports(res.items || []);
+    } catch {
+      // non-fatal
+    } finally {
+      setWeeklyReportsLoading(false);
+    }
+  }
+
   async function loadLlmStats() {
     try {
       const res = await api<LlmStats>(baseUrl, "/api/llm-stats?days=30");
@@ -387,6 +417,15 @@ export default function HomelabIncidentDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showLlmLog]);
 
+  useEffect(() => {
+    if (showDailyReports) loadDailyReports();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showDailyReports]);
+
+  useEffect(() => {
+    if (showWeeklyReports) loadWeeklyReports();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showWeeklyReports]);
 
   // Auto-fill message_regex pattern whenever the panel opens or scope switches to message_regex
   useEffect(() => {
@@ -1110,6 +1149,122 @@ export default function HomelabIncidentDashboard() {
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
+                  </div>
+                );
+              })}
+            </CardContent>
+          )}
+        </Card>
+
+        {/* Daily reports panel */}
+        <Card className="border-slate-800 bg-slate-900/70 rounded-3xl shadow-2xl">
+          <button
+            className="w-full flex items-center justify-between p-6 text-left"
+            onClick={() => setShowDailyReports((v) => !v)}
+          >
+            <div>
+              <div className="text-base font-semibold flex items-center gap-2 text-slate-200">
+                <CalendarDays className="h-5 w-5 text-cyan-400" />
+                Daily reports
+                {dailyReports.length > 0 && (
+                  <Badge variant="outline" className="border-cyan-800 text-cyan-300 ml-1">
+                    {dailyReports.length}
+                  </Badge>
+                )}
+              </div>
+              <div className="text-sm text-slate-400 mt-1">
+                LLM-generated daily health reports.
+              </div>
+            </div>
+            {showDailyReports ? <ChevronUp className="h-5 w-5 text-slate-400" /> : <ChevronDown className="h-5 w-5 text-slate-400" />}
+          </button>
+          {showDailyReports && (
+            <CardContent className="pt-0 space-y-3">
+              {dailyReportsLoading && <div className="text-sm text-slate-400">Loading...</div>}
+              {!dailyReportsLoading && dailyReports.length === 0 && (
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-400">
+                  No daily reports yet.
+                </div>
+              )}
+              {dailyReports.map((entry) => {
+                const statusMatch = entry.message.match(/Overall Status:\s*(Healthy|Warning|Critical)/i);
+                const status = statusMatch ? statusMatch[1].toLowerCase() : null;
+                const statusColor = status === "critical" ? "text-red-400 border-red-800"
+                  : status === "warning" ? "text-orange-400 border-orange-800"
+                  : status === "healthy" ? "text-emerald-400 border-emerald-800"
+                  : "text-slate-400 border-slate-700";
+                return (
+                  <div key={entry.id} className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                    <div className="flex items-center gap-2 flex-wrap mb-2">
+                      {status && (
+                        <Badge variant="outline" className={classNames("text-xs", statusColor)}>
+                          {status}
+                        </Badge>
+                      )}
+                      <Badge variant="outline" className={classNames("text-xs", entry.priority === "urgent" ? "text-red-400 border-red-800" : entry.priority === "high" ? "text-orange-400 border-orange-800" : "text-slate-400 border-slate-700")}>
+                        {entry.priority}
+                      </Badge>
+                      <span className="text-xs text-slate-500">{fmtDate(entry.sent_at)}</span>
+                    </div>
+                    <pre className="styled-scroll text-xs text-slate-300 whitespace-pre-wrap break-words font-mono leading-relaxed max-h-64 overflow-y-auto">{entry.message}</pre>
+                  </div>
+                );
+              })}
+            </CardContent>
+          )}
+        </Card>
+
+        {/* Weekly reports panel */}
+        <Card className="border-slate-800 bg-slate-900/70 rounded-3xl shadow-2xl">
+          <button
+            className="w-full flex items-center justify-between p-6 text-left"
+            onClick={() => setShowWeeklyReports((v) => !v)}
+          >
+            <div>
+              <div className="text-base font-semibold flex items-center gap-2 text-slate-200">
+                <CalendarRange className="h-5 w-5 text-indigo-400" />
+                Weekly reports
+                {weeklyReports.length > 0 && (
+                  <Badge variant="outline" className="border-indigo-800 text-indigo-300 ml-1">
+                    {weeklyReports.length}
+                  </Badge>
+                )}
+              </div>
+              <div className="text-sm text-slate-400 mt-1">
+                LLM-generated weekly reliability reports.
+              </div>
+            </div>
+            {showWeeklyReports ? <ChevronUp className="h-5 w-5 text-slate-400" /> : <ChevronDown className="h-5 w-5 text-slate-400" />}
+          </button>
+          {showWeeklyReports && (
+            <CardContent className="pt-0 space-y-3">
+              {weeklyReportsLoading && <div className="text-sm text-slate-400">Loading...</div>}
+              {!weeklyReportsLoading && weeklyReports.length === 0 && (
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-sm text-slate-400">
+                  No weekly reports yet.
+                </div>
+              )}
+              {weeklyReports.map((entry) => {
+                const statusMatch = entry.message.match(/Overall Status:\s*(Healthy|Warning|Critical)/i);
+                const status = statusMatch ? statusMatch[1].toLowerCase() : null;
+                const statusColor = status === "critical" ? "text-red-400 border-red-800"
+                  : status === "warning" ? "text-orange-400 border-orange-800"
+                  : status === "healthy" ? "text-emerald-400 border-emerald-800"
+                  : "text-slate-400 border-slate-700";
+                return (
+                  <div key={entry.id} className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                    <div className="flex items-center gap-2 flex-wrap mb-2">
+                      {status && (
+                        <Badge variant="outline" className={classNames("text-xs", statusColor)}>
+                          {status}
+                        </Badge>
+                      )}
+                      <Badge variant="outline" className={classNames("text-xs", entry.priority === "urgent" ? "text-red-400 border-red-800" : entry.priority === "high" ? "text-orange-400 border-orange-800" : "text-slate-400 border-slate-700")}>
+                        {entry.priority}
+                      </Badge>
+                      <span className="text-xs text-slate-500">{fmtDate(entry.sent_at)}</span>
+                    </div>
+                    <pre className="styled-scroll text-xs text-slate-300 whitespace-pre-wrap break-words font-mono leading-relaxed max-h-64 overflow-y-auto">{entry.message}</pre>
                   </div>
                 );
               })}
